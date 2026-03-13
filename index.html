@@ -284,18 +284,18 @@ function scoreColor(n) {
 // ═══════════════════════════════════════════════════════
 window._log = [];
 function addLog(msg) {
-  const ts = new Date().toTimeString().slice(0,8);
+  var ts = new Date().toTimeString().slice(0,8);
   window._log.push(ts + ' ' + msg);
 }
 
-// ─── Alpha Vantage — free tier, proper CORS, no restrictions ────────────────
-// Free API key: https://www.alphavantage.co/support/#api-key (instant, no credit card)
-// 25 requests/day on free tier. We cache results in localStorage to preserve quota.
-// Covers: price, MA50, MA200, volume, RSI, EPS growth, PE, PB etc.
-//
-// If no API key is set, app works in Manual Score mode only.
+// ─── Twelve Data — free tier, 800 calls/day, proper CORS ────────────────────
+// Endpoints used per ticker (2 calls):
+//   /quote          → price, change%, 52w high/low, volume, PE, EPS
+//   /time_series    → 200 days OHLCV → MA50, MA200, volumeRatio, RS
+// Fundamentals via /statistics (free tier): revenue growth, ROE, PB, EV/EBITDA
 
-var AV_KEY = localStorage.getItem('av_key') || '';
+var TD_KEY = localStorage.getItem('td_key') || '';
+var TD_BASE = 'https://api.twelvedata.com';
 
 async function safeFetch(url, timeoutMs) {
   timeoutMs = timeoutMs || 15000;
@@ -308,7 +308,7 @@ async function safeFetch(url, timeoutMs) {
     return await res.json();
   } catch(e) {
     clearTimeout(timer);
-    addLog(e.name === 'AbortError' ? 'timeout' : 'err: ' + e.message.slice(0, 60));
+    addLog(e.name === 'AbortError' ? 'timeout' : 'err: ' + e.message.slice(0,60));
     return null;
   }
 }
@@ -316,81 +316,85 @@ async function safeFetch(url, timeoutMs) {
 async function fetchQuote(ticker) {
   addLog('=== ' + ticker + ' ===');
 
-  if (!AV_KEY) {
-    addLog('No API key — tap ⚙ Key in Pipeline to add your Alpha Vantage key');
+  if (!TD_KEY) {
+    addLog('No API key — tap Key button in Pipeline');
     return null;
   }
 
-  // Global Quote — price, open, high, low, volume, change%
-  var quoteUrl = 'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=' + ticker + '&apikey=' + AV_KEY;
-  addLog('AV quote...');
-  var qdata = await safeFetch(quoteUrl, 15000);
-  var gq = qdata && qdata['Global Quote'];
+  // ── Call 1: /time_series — 200 days OHLCV ───────────────────────────────
+  var tsUrl = TD_BASE + '/time_series?symbol=' + ticker +
+    '&interval=1day&outputsize=200&apikey=' + TD_KEY;
+  addLog('time_series...');
+  var ts = await safeFetch(tsUrl, 15000);
 
-  if (!gq || !gq['05. price']) {
-    addLog('AV quote failed or rate limited');
+  if (!ts || ts.status === 'error' || !ts.values || !ts.values.length) {
+    addLog('time_series failed: ' + (ts && ts.message ? ts.message : 'no data'));
     return null;
   }
 
-  var price  = parseFloat(gq['05. price']);
-  var change = parseFloat(gq['10. change percent']) || 0;
+  // values come newest-first, reverse for chronological
+  var vals = ts.values.slice().reverse();
+  var closes = vals.map(function(v){ return parseFloat(v.close); });
+  var vols   = vals.map(function(v){ return parseFloat(v.volume) || 0; });
+  var price  = closes[closes.length - 1];
 
-  addLog('✓ $' + price.toFixed(2) + ' (' + (change >= 0 ? '+' : '') + change.toFixed(2) + '%)');
-
-  // Daily adjusted — for MA50, MA200, volume ratio
-  var dailyUrl = 'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=' + ticker + '&outputsize=compact&apikey=' + AV_KEY;
-  addLog('AV daily...');
-  var ddata = await safeFetch(dailyUrl, 15000);
-  var ts = ddata && ddata['Time Series (Daily)'];
-
-  var ma50 = null, ma200 = null, volumeRatio = null, rsVsSPY = null;
-
-  if (ts) {
-    var dates  = Object.keys(ts).sort();
-    var closes = dates.map(function(d){ return parseFloat(ts[d]['4. close']); });
-    var vols   = dates.map(function(d){ return parseFloat(ts[d]['5. volume']); });
-
-    function ma(arr, n) {
-      if (arr.length < n) return null;
-      var sl = arr.slice(-n);
-      return sl.reduce(function(a,b){ return a+b; },0) / n;
-    }
-
-    ma50  = ma(closes, 50);
-    ma200 = ma(closes, 200);
-    var vol20 = ma(vols, 20);
-    volumeRatio = (vol20 && vols.length) ? vols[vols.length-1] / vol20 : null;
-    var p20 = closes.length > 20 ? closes[closes.length - 21] : null;
-    rsVsSPY = p20 ? (price - p20) / p20 * 100 : null;
-
-    addLog('50MA=' + (ma50 ? ma50.toFixed(0) : 'n/a') +
-           ' 200MA=' + (ma200 ? ma200.toFixed(0) : 'n/a') +
-           ' rs=' + (rsVsSPY != null ? rsVsSPY.toFixed(1) + '%' : 'n/a'));
+  function ma(arr, n) {
+    if (arr.length < n) return null;
+    var sl = arr.slice(-n);
+    return sl.reduce(function(a,b){ return a+b; }, 0) / n;
   }
 
-  // Overview — PE, PB, EPS growth, revenue growth, profit margin
-  var overviewUrl = 'https://www.alphavantage.co/query?function=OVERVIEW&symbol=' + ticker + '&apikey=' + AV_KEY;
-  addLog('AV overview...');
-  var ov = await safeFetch(overviewUrl, 12000);
+  var ma50  = ma(closes, 50);
+  var ma200 = ma(closes, 200);
+  var vol20 = ma(vols, 20);
+  var volumeRatio = (vol20 && vols.length) ? vols[vols.length-1] / vol20 : null;
+  var p20 = closes.length > 20 ? closes[closes.length - 21] : null;
+  var rsVsSPY = p20 ? (price - p20) / p20 * 100 : null;
 
-  var fundData = {
-    rsVsSPY:          rsVsSPY,
-    hasCatalyst:      rsVsSPY != null && rsVsSPY > 5,
-    pegRatio:         ov && ov.PEGRatio          ? parseFloat(ov.PEGRatio)          : null,
-    evToEbitda:       ov && ov.EVToEBITDA         ? parseFloat(ov.EVToEBITDA)        : null,
-    pb:               ov && ov.PriceToBookRatio   ? parseFloat(ov.PriceToBookRatio)  : null,
-    revenueGrowthYoY: ov && ov.QuarterlyRevenueGrowthYOY ? parseFloat(ov.QuarterlyRevenueGrowthYOY) * 100 : null,
-    roe:              ov && ov.ReturnOnEquityTTM  ? parseFloat(ov.ReturnOnEquityTTM) * 100 : null,
-    earningsSurprise: ov && ov.QuarterlyEarningsGrowthYOY ? parseFloat(ov.QuarterlyEarningsGrowthYOY) : null,
-    priceToFCF:       null,
+  addLog('$' + price.toFixed(2) +
+    (ma50  ? ' 50MA=' + ma50.toFixed(0)  : '') +
+    (ma200 ? ' 200MA=' + ma200.toFixed(0) : '') +
+    (rsVsSPY != null ? ' RS=' + rsVsSPY.toFixed(1) + '%' : ''));
+
+  // ── Call 2: /statistics — fundamentals ──────────────────────────────────
+  var statUrl = TD_BASE + '/statistics?symbol=' + ticker + '&apikey=' + TD_KEY;
+  addLog('statistics...');
+  var stat = await safeFetch(statUrl, 15000);
+
+  var pegRatio = null, evToEbitda = null, pb = null;
+  var revenueGrowthYoY = null, roe = null, earningsSurprise = null, priceToFCF = null;
+
+  if (stat && stat.statistics) {
+    var v = stat.statistics;
+    var val = stat.valuations_metrics  || {};
+    var fin = stat.financials          || {};
+    var inc = fin.income_statement     || {};
+    var bal = fin.balance_sheet        || {};
+
+    pegRatio         = parseFloat(val.peg_ratio)           || null;
+    evToEbitda       = parseFloat(val.ev_to_ebitda)        || null;
+    pb               = parseFloat(val.price_to_book_mrq)   || null;
+    roe              = parseFloat((fin.return_on_equity_ttm||'').replace('%','')) || null;
+    revenueGrowthYoY = parseFloat((inc.quarterly_revenue_growth_yoy||'').replace('%','')) || null;
+    earningsSurprise = parseFloat((inc.quarterly_earnings_growth_yoy||'').replace('%','')) || null;
+    priceToFCF       = parseFloat(val.price_to_cash_flow)  || null;
+
+    addLog('fund ✓ PEG=' + (pegRatio ? pegRatio.toFixed(2) : 'n/a') +
+           ' PB=' + (pb ? pb.toFixed(2) : 'n/a') +
+           ' ROE=' + (roe ? roe.toFixed(1) + '%' : 'n/a'));
+  } else {
+    addLog('statistics: ' + (stat && stat.message ? stat.message : 'no data'));
+  }
+
+  return {
+    price: price, ma50: ma50, ma200: ma200,
+    volumeRatio: volumeRatio, rsVsSPY: rsVsSPY,
+    hasCatalyst: rsVsSPY != null && rsVsSPY > 5,
+    pegRatio: pegRatio, evToEbitda: evToEbitda, pb: pb,
+    revenueGrowthYoY: revenueGrowthYoY, roe: roe,
+    earningsSurprise: earningsSurprise, priceToFCF: priceToFCF,
+    fetchedAt: Date.now()
   };
-
-  if (ov && ov.Symbol) addLog('overview ✓');
-  else addLog('overview: rate limited or failed (fundamentals partial)');
-
-  var result = { price: price, ma50: ma50, ma200: ma200, volumeRatio: volumeRatio, fetchedAt: Date.now() };
-  for (var k in fundData) result[k] = fundData[k];
-  return result;
 }
 
 function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
@@ -827,12 +831,12 @@ function buildPipeline() {
   }
 
   // API key banner
-  if (!localStorage.getItem('av_key')) {
+  if (!localStorage.getItem('td_key')) {
     const keyBanner = h('div', {style:{background:'rgba(255,200,74,0.1)', border:'1px solid rgba(255,200,74,0.3)', borderRadius:'10px', padding:'10px 12px', marginBottom:'10px', fontSize:'11px', lineHeight:'1.6', fontFamily:'monospace'}},
-      h('div', {style:{color:'#ffc84a', marginBottom:'4px', fontWeight:'700'}}, '⚙ Free API Key Required for Live Data'),
+      h('div', {style:{color:'#ffc84a', marginBottom:'4px', fontWeight:'700'}}, '⚙ Twelve Data API Key Required'),
       h('div', {style:{color:'#9da3b4', marginBottom:'8px'}},
-        '1. Go to alphavantage.co/support/#api-key',
-        h('br',{}), '2. Enter any email, get free key instantly',
+        '1. Sign up at twelvedata.com (free)',
+        h('br',{}), '2. Copy your API key from the dashboard',
         h('br',{}), '3. Tap the button below to save it'),
       (() => {
         const btn = h('button', {cls:'btn btn-xs btn-ghost', style:{color:'#ffc84a', border:'1px solid rgba(255,200,74,0.4)'}}, '⚙ Enter API Key');
@@ -1478,27 +1482,27 @@ function buildModal(portVal) {
   }
 
   else if (MODAL === 'apikey') {
-    hdr('Alpha Vantage API Key');
+    hdr('Twelve Data API Key');
     sheet.appendChild(h('div', {style:{fontSize:'11px', color:'#9da3b4', fontFamily:'monospace', lineHeight:'1.7', marginBottom:'16px'}},
-      '1. Open alphavantage.co/support/#api-key', h('br',{}),
+      '1. Sign up at twelvedata.com', h('br',{}),
       '2. Enter any email address', h('br',{}),
       '3. Your free key arrives instantly', h('br',{}),
       '4. 25 requests/day — enough for daily scoring'
     ));
     const keyInput = h('input', {type:'text', id:'av-key-input', placeholder:'Paste your key here e.g. ABC123XYZ', style:{width:'100%', background:'#0a0c10', border:'1px solid #242836', borderRadius:'10px', padding:'12px', color:'#e8eaf0', fontSize:'13px', fontFamily:'monospace', outline:'none', marginBottom:'14px', letterSpacing:'1px'}});
-    const existing = localStorage.getItem('av_key');
+    const existing = localStorage.getItem('td_key');
     if (existing) keyInput.value = existing;
     sheet.appendChild(keyInput);
     const saveBtn = h('button', {cls:'btn btn-primary btn-full'}, 'Save Key & Start Scoring');
     saveBtn.onclick = () => {
       const key = keyInput.value.trim();
-      if (key) { localStorage.setItem('av_key', key); AV_KEY = key; }
+      if (key) { localStorage.setItem('td_key', key); TD_KEY = key; }
       MODAL = null; render();
     };
     sheet.appendChild(saveBtn);
     if (existing) {
       const clearBtn = h('button', {cls:'btn btn-ghost btn-full', style:{marginTop:'8px'}}, 'Clear Saved Key');
-      clearBtn.onclick = () => { localStorage.removeItem('av_key'); AV_KEY = ''; MODAL = null; render(); };
+      clearBtn.onclick = () => { localStorage.removeItem('td_key'); TD_KEY = ''; MODAL = null; render(); };
       sheet.appendChild(clearBtn);
     }
   }
