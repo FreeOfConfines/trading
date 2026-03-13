@@ -215,58 +215,109 @@ function h(tag, attrs, ...kids) {
 const d = (cls, ...kids) => h('div', {cls}, ...kids);
 
 // ═══════════════════════════════════════════════════════
-// SCORING
+// SCORING ENGINE
 // ═══════════════════════════════════════════════════════
+// Sector ETF map for thematic auto-scoring
+const SECTOR_ETF = {
+  ai:      'QQQ',
+  semi:    'SOXX',
+  fin:     'XLF',
+  energy:  'XLE',
+  defense: 'ITA',
+  health:  'XLV',
+};
+
+// Cached SPY and sector ETF 1M price changes — fetched once per Refresh All
+var SPY_1M  = null;   // % e.g. -2.85
+var ETF_1M  = {};     // { 'QQQ': 1.2, 'XLF': -0.5, ... }
+
 function scoreStock(stock) {
   const q = stock.quoteData;
-  if (!q) return {total:0, breakdown:{fund:0, theme:0, tech:0}, stage:'WATCHING', reason:'Tap Refresh Data to load'};
+  if (!q) return {total:0, breakdown:{fund:0, theme:0, tech:0}, stage:'WATCHING', reason:'Tap ⟳ Refresh to load data', signals:{}};
 
   const [fw, tw, tw2] = SECTOR_W[stock.sector] || [25, 20, 55];
 
-  // Fundamental
+  // ── FUNDAMENTAL (6 signals) ─────────────────────────────────
+  // revenueGrowthYoY  : from stable/income-statement (2 periods), in %
+  // earningsSurprise  : netIncome YoY change, > 0 = beat
+  // priceToFCF        : from stable/ratios-ttm → priceToFreeCashFlowRatioTTM
+  // pegRatio          : from stable/ratios-ttm → priceToEarningsGrowthRatioTTM
+  // evToEbitda        : from stable/ratios-ttm → enterpriseValueMultipleTTM
+  // pb + roe          : pb from ratios-ttm → priceToBookRatioTTM
+  //                     roe from stable/key-metrics → returnOnEquity (decimal, e.g. 1.52 = 152%)
+  const fundRaw = {
+    revenueGrowth: q.revenueGrowthYoY,
+    earningsSurprise: q.earningsSurprise,
+    priceToFCF: q.priceToFCF,
+    pegRatio: q.pegRatio,
+    evToEbitda: q.evToEbitda,
+    pb: q.pb,
+    roe: q.roe,  // stored as decimal from key-metrics (e.g. 1.52 = 152%)
+  };
   const fund = {
-    revenueGrowth: q.revenueGrowthYoY != null && q.revenueGrowthYoY > 15,
-    earningsBeat:  q.earningsSurprise  != null && q.earningsSurprise  > 0,
-    pfcf:          q.priceToFCF        != null && q.priceToFCF        < 25,
-    peg:           q.pegRatio          != null && q.pegRatio          < 1.5,
-    evEbitda:      q.evToEbitda        != null && q.evToEbitda        < 15,
-    pbRoe:         q.pb != null && q.roe != null && q.pb < 3 && q.roe > 15,
+    revenueGrowth: fundRaw.revenueGrowth != null && fundRaw.revenueGrowth > 15,
+    earningsBeat:  fundRaw.earningsSurprise != null && fundRaw.earningsSurprise > 0,
+    pfcf:          fundRaw.priceToFCF != null && fundRaw.priceToFCF < 25,
+    peg:           fundRaw.pegRatio != null && fundRaw.pegRatio > 0 && fundRaw.pegRatio < 1.5,
+    evEbitda:      fundRaw.evToEbitda != null && fundRaw.evToEbitda > 0 && fundRaw.evToEbitda < 15,
+    // ROE from key-metrics is decimal (1.52 = 152%). Convert: > 0.15 means > 15%
+    pbRoe:         fundRaw.pb != null && fundRaw.roe != null && fundRaw.pb < 3 && fundRaw.roe > 0.15,
   };
-  const fundScore = (Object.values(fund).filter(Boolean).length / 6) * fw;
+  const fundHit  = Object.values(fund).filter(Boolean).length;
+  const fundData = Object.values(fundRaw).filter(v => v != null).length > 0;
+  const fundScore = (fundHit / 6) * fw;
 
-  // Thematic
+  // ── THEMATIC (2 signals, auto via ETF 1M vs SPY 1M) ─────────
+  // sectorEtfUp : sector ETF 1M return > SPY 1M return → sector in uptrend
+  // themeRS     : sector ETF 1M return > SPY 1M + 1% → theme outperforming
+  const etfKey   = SECTOR_ETF[stock.sector];
+  const etf1M    = (etfKey && ETF_1M[etfKey] != null) ? ETF_1M[etfKey] : null;
+  const spy1M    = SPY_1M;
   const theme = {
-    sectorUp:    q.rsVsSPY != null && q.rsVsSPY > 0,
-    catalyst:    q.hasCatalyst === true,
-    themeRS:     q.rsVsSPY != null && q.rsVsSPY > 2,
+    sectorEtfUp: etf1M != null && spy1M != null && etf1M > spy1M,
+    themeRS:     etf1M != null && spy1M != null && etf1M > (spy1M + 1),
   };
-  const themeScore = (Object.values(theme).filter(Boolean).length / 3) * tw;
+  const themeScore = (Object.values(theme).filter(Boolean).length / 2) * tw;
 
-  // Technical
+  // ── TECHNICAL (5 signals) ────────────────────────────────────
+  // above50   : price > 50-day MA  (from stable/quote → priceAvg50)
+  // above200  : price > 200-day MA (from stable/quote → priceAvg200)
+  // pullback  : price > 50MA but within 4% above it (ideal entry zone)
+  // volume    : today's volume > average volume (volumeRatio > 1.0)
+  // rs        : stock 1M % change > SPY 1M % change (from stable/stock-price-change)
   const tech = {
     above50:  q.price != null && q.ma50  != null && q.price > q.ma50,
     above200: q.price != null && q.ma200 != null && q.price > q.ma200,
-    pullback: q.price != null && q.ma50  != null && q.price < q.ma50 * 1.04 && q.price > q.ma50,
+    pullback: q.price != null && q.ma50  != null && q.price > q.ma50 && q.price < q.ma50 * 1.04,
     volume:   q.volumeRatio != null && q.volumeRatio > 1.0,
-    rs:       q.rsVsSPY != null && q.rsVsSPY > 0,
+    rs:       q.stock1M != null && spy1M != null && q.stock1M > spy1M,
   };
   const techScore = (Object.values(tech).filter(Boolean).length / 5) * tw2;
 
   const total = Math.round(fundScore + themeScore + techScore);
-  let stage = total >= 85 ? 'STRONG BUY' : total >= 70 ? 'ENTRY READY' : total >= 50 ? 'SCREENED' : 'WATCHING';
+  const stage = total >= 85 ? 'STRONG BUY' : total >= 70 ? 'ENTRY READY' : total >= 50 ? 'SCREENED' : 'WATCHING';
 
+  // Human-readable reason
   const reasons = [];
-  if (tech.above50 && tech.pullback) reasons.push('pulling back to 50-day MA');
-  if (tech.rs) reasons.push('outperforming S&P');
-  if (fund.earningsBeat) reasons.push('beat last earnings');
-  if (fund.pfcf || fund.peg) reasons.push('undervalued on cash flow');
-  if (!tech.above50) reasons.push('below 50-day MA');
-  if (!fund.revenueGrowth && !fund.earningsBeat) reasons.push('weak fundamental momentum');
+  if (tech.pullback)          reasons.push('pulling back to 50MA — entry zone');
+  if (tech.rs)                reasons.push('outperforming S&P 1M');
+  if (theme.themeRS)          reasons.push('sector beating market');
+  if (fund.earningsBeat)      reasons.push('earnings growing YoY');
+  if (fund.revenueGrowth)     reasons.push('revenue +' + (fundRaw.revenueGrowth ? fundRaw.revenueGrowth.toFixed(0) : '?') + '% YoY');
+  if (!tech.above50)          reasons.push('below 50-day MA');
+  if (!tech.above200)         reasons.push('below 200-day MA');
+  if (!fundData)              reasons.push('fundamentals not loaded');
+
+  // Sanity: log if score jumped > 30 pts from prior
+  if (stock.score != null && Math.abs(total - stock.score) > 30) {
+    addLog('[SANITY] ' + stock.ticker + ' score jumped ' + stock.score + '→' + total + ' — verify data');
+  }
 
   return {
     total,
     breakdown: {fund: Math.round(fundScore), theme: Math.round(themeScore), tech: Math.round(techScore)},
     signals: {...fund, ...theme, ...tech},
+    fundRaw,
     stage,
     reason: reasons.slice(0, 2).join(', ') || 'monitoring',
   };
@@ -280,26 +331,33 @@ function scoreColor(n) {
 }
 
 // ═══════════════════════════════════════════════════════
-// DATA FETCH — multi-proxy with logging
+// DATA FETCH — FMP Starter plan
 // ═══════════════════════════════════════════════════════
+// Endpoint map (all confirmed working):
+//
+// TECHNICAL:
+//   stable/quote?symbol=              → price, priceAvg50, priceAvg200, volume, avgVolume
+//   stable/stock-price-change?symbol= → 1M % change (RS vs SPY)
+//
+// FUNDAMENTAL:
+//   stable/ratios-ttm?symbol=         → PEG, P/B, P/FCF, EV/EBITDA
+//   stable/key-metrics?symbol=        → returnOnEquity (ROE, decimal)
+//   stable/income-statement?symbol=&limit=2 → revenue + netIncome YoY
+//
+// THEMATIC:
+//   stable/stock-price-change?symbol=SPY   → 1M % (once per Refresh All)
+//   stable/stock-price-change?symbol={ETF} → 1M % per sector (once per Refresh All)
+
 window._log = [];
 function addLog(msg) {
   var ts = new Date().toTimeString().slice(0,8);
   window._log.push(ts + ' ' + msg);
 }
 
-// ─── Financial Modeling Prep (FMP) ──────────────────────────────────────────
-// Free tier: 250 calls/day, 150+ endpoints, no rate limit issues
-// 2 calls per ticker:
-//   /stable/quote        → price, priceAvg50, priceAvg200, volume, yearHigh/Low
-//   /v3/key-metrics-ttm  → pegRatio, evToEbitda, pbRatio, roe, pfcf
-// 3rd call optional:
-//   /v3/income-statement → revenueGrowth, earningsGrowth (limit=2)
-// Total: 93 calls/day for 31 stocks — well within 250 limit
-
-var FMP_KEY = localStorage.getItem('fmp_key') || '';
+var FMP_KEY  = localStorage.getItem('fmp_key') || '';
 var FMP_BASE = 'https://financialmodelingprep.com';
 
+// ── Safe fetch with timeout ──────────────────────────────────────────────────
 async function safeFetch(url, timeoutMs) {
   timeoutMs = timeoutMs || 15000;
   var controller = new AbortController();
@@ -307,8 +365,11 @@ async function safeFetch(url, timeoutMs) {
   try {
     var res = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
-    if (!res.ok) { addLog('HTTP ' + res.status); return null; }
-    return await res.json();
+    if (!res.ok) { addLog('HTTP ' + res.status + ' ' + url.split('?')[0].split('/').pop()); return null; }
+    var json = await res.json();
+    // Sanity: warn if response is empty array
+    if (Array.isArray(json) && json.length === 0) { addLog('[WARN] empty array response'); return null; }
+    return json;
   } catch(e) {
     clearTimeout(timer);
     addLog(e.name === 'AbortError' ? 'timeout' : 'err: ' + e.message.slice(0,60));
@@ -316,6 +377,35 @@ async function safeFetch(url, timeoutMs) {
   }
 }
 
+function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
+
+// ── Fetch SPY and all sector ETF 1M returns — called once before ticker loop ─
+async function prefetchMarketData() {
+  addLog('--- prefetch SPY + ETFs ---');
+  var symbols = ['SPY', 'QQQ', 'SOXX', 'XLF', 'XLE', 'ITA', 'XLV'];
+  for (var i = 0; i < symbols.length; i++) {
+    var sym = symbols[i];
+    var url = FMP_BASE + '/stable/stock-price-change?symbol=' + sym + '&apikey=' + FMP_KEY;
+    var data = await safeFetch(url, 12000);
+    var row  = data && (Array.isArray(data) ? data[0] : data);
+    if (row && row['1M'] != null) {
+      var val = parseFloat(row['1M']);
+      if (sym === 'SPY') {
+        SPY_1M = val;
+        addLog('SPY 1M=' + val.toFixed(2) + '%');
+      } else {
+        ETF_1M[sym] = val;
+        addLog(sym + ' 1M=' + val.toFixed(2) + '%');
+      }
+    } else {
+      addLog('[WARN] ' + sym + ' price-change missing');
+    }
+    if (i < symbols.length - 1) await sleep(300);
+  }
+  addLog('--- prefetch done ---');
+}
+
+// ── Per-ticker fetch — 5 calls ───────────────────────────────────────────────
 async function fetchQuote(ticker) {
   addLog('=== ' + ticker + ' ===');
 
@@ -324,88 +414,108 @@ async function fetchQuote(ticker) {
     return null;
   }
 
-  // ── Call 1: /stable/quote — price, MA50, MA200, volume ───────────────────
-  var quoteUrl = FMP_BASE + '/stable/quote?symbol=' + ticker + '&apikey=' + FMP_KEY;
+  // ── Call 1: quote → price, MA50, MA200, volume ───────────────────────────
   addLog('quote...');
-  var qdata = await safeFetch(quoteUrl, 15000);
+  var qdata = await safeFetch(FMP_BASE + '/stable/quote?symbol=' + ticker + '&apikey=' + FMP_KEY, 15000);
   var q = qdata && (Array.isArray(qdata) ? qdata[0] : qdata);
-
-  if (!q || !q.price) {
-    addLog('quote failed');
-    return null;
-  }
+  if (!q || !q.price) { addLog('quote failed'); return null; }
 
   var price       = parseFloat(q.price);
   var ma50        = parseFloat(q.priceAvg50)  || null;
   var ma200       = parseFloat(q.priceAvg200) || null;
-  var vol         = parseFloat(q.volume)       || null;
-  var avgVol      = parseFloat(q.avgVolume)    || null;
+  var vol         = parseFloat(q.volume)      || null;
+  var avgVol      = parseFloat(q.avgVolume)   || null;
   var volumeRatio = (avgVol && vol) ? vol / avgVol : null;
-  var yearHigh    = parseFloat(q.yearHigh)     || null;
-  var yearLow     = parseFloat(q.yearLow)      || null;
-  var rsVsSPY     = (yearHigh && yearLow && yearLow !== yearHigh)
-    ? ((price - yearLow) / (yearHigh - yearLow) * 100) - 50
-    : null;
 
-  addLog('$' + price.toFixed(2) +
-    (ma50  ? ' 50MA=' + ma50.toFixed(0)  : '') +
-    (ma200 ? ' 200MA=' + ma200.toFixed(0) : ''));
+  // Sanity checks on price vs MAs
+  if (ma50  && (price / ma50  > 3 || price / ma50  < 0.3)) addLog('[SANITY] price/50MA ratio suspect: ' + (price/ma50).toFixed(2));
+  if (ma200 && (price / ma200 > 3 || price / ma200 < 0.3)) addLog('[SANITY] price/200MA ratio suspect: ' + (price/ma200).toFixed(2));
 
-  // ── Call 2: /v3/key-metrics-ttm — fundamentals ───────────────────────────
-  var metricsUrl = FMP_BASE + '/api/v3/key-metrics-ttm/' + ticker + '?apikey=' + FMP_KEY;
-  addLog('metrics...');
-  var mdata = await safeFetch(metricsUrl, 15000);
-  var m = (mdata && Array.isArray(mdata) && mdata[0]) || {};
+  addLog('$' + price.toFixed(2) + (ma50 ? ' 50MA=' + ma50.toFixed(0) : '') + (ma200 ? ' 200MA=' + ma200.toFixed(0) : '') + (volumeRatio ? ' volR=' + volumeRatio.toFixed(2) : ''));
 
-  var pegRatio   = parseFloat(m.pegRatioTTM)                  || null;
-  var evToEbitda = parseFloat(m.enterpriseValueOverEBITDATTM)  || null;
-  var pb         = parseFloat(m.pbRatioTTM)                    || null;
-  var roe        = parseFloat(m.roeTTM)                        || null;
-  var priceToFCF = parseFloat(m.priceToFreeCashFlowsTTM)       || null;
-
-  if (roe && Math.abs(roe) < 5) roe = roe * 100; // normalize if decimal
-
-  if (pb || roe) {
-    addLog('metrics ✓ PEG=' + (pegRatio   ? pegRatio.toFixed(2)   : 'n/a') +
-                    ' PB='  + (pb         ? pb.toFixed(2)         : 'n/a') +
-                    ' ROE=' + (roe        ? roe.toFixed(1) + '%'  : 'n/a') +
-                    ' EV/E='+ (evToEbitda ? evToEbitda.toFixed(1) : 'n/a'));
+  // ── Call 2: stock-price-change → 1M RS vs SPY ───────────────────────────
+  addLog('price-change...');
+  var pcdata = await safeFetch(FMP_BASE + '/stable/stock-price-change?symbol=' + ticker + '&apikey=' + FMP_KEY, 12000);
+  var pc = pcdata && (Array.isArray(pcdata) ? pcdata[0] : pcdata);
+  var stock1M = (pc && pc['1M'] != null) ? parseFloat(pc['1M']) : null;
+  if (stock1M != null) {
+    addLog('1M=' + stock1M.toFixed(2) + '% vs SPY=' + (SPY_1M != null ? SPY_1M.toFixed(2) + '%' : 'n/a') + (SPY_1M != null ? (stock1M > SPY_1M ? ' ✓RS' : ' ✗RS') : ''));
   } else {
-    addLog('metrics: empty');
+    addLog('[WARN] price-change 1M missing');
   }
 
-  // ── Call 3: /v3/income-statement — revenue & earnings growth ─────────────
-  var incUrl = FMP_BASE + '/api/v3/income-statement/' + ticker + '?limit=2&apikey=' + FMP_KEY;
+  // ── Call 3: ratios-ttm → PEG, P/B, P/FCF, EV/EBITDA ────────────────────
+  addLog('ratios-ttm...');
+  var rdata = await safeFetch(FMP_BASE + '/stable/ratios-ttm?symbol=' + ticker + '&apikey=' + FMP_KEY, 15000);
+  var r = (rdata && Array.isArray(rdata) && rdata[0]) || {};
+
+  var pegRatio   = (r.priceToEarningsGrowthRatioTTM   != null) ? parseFloat(r.priceToEarningsGrowthRatioTTM)   : null;
+  var pb         = (r.priceToBookRatioTTM              != null) ? parseFloat(r.priceToBookRatioTTM)              : null;
+  var priceToFCF = (r.priceToFreeCashFlowRatioTTM     != null) ? parseFloat(r.priceToFreeCashFlowRatioTTM)     : null;
+  var evToEbitda = (r.enterpriseValueMultipleTTM       != null) ? parseFloat(r.enterpriseValueMultipleTTM)       : null;
+
+  // Sanity: negative PEG or P/B is suspect (can happen with negative earnings)
+  if (pegRatio   != null && pegRatio   < 0) { addLog('[WARN] negative PEG=' + pegRatio.toFixed(2) + ' (negative earnings?) — treating as null'); pegRatio = null; }
+  if (pb         != null && pb         < 0) { addLog('[WARN] negative P/B=' + pb.toFixed(2) + ' — treating as null'); pb = null; }
+  if (evToEbitda != null && evToEbitda < 0) { addLog('[WARN] negative EV/EBITDA=' + evToEbitda.toFixed(2) + ' — treating as null'); evToEbitda = null; }
+
+  if (pegRatio || pb || priceToFCF || evToEbitda) {
+    addLog('ratios ✓ PEG=' + (pegRatio != null ? pegRatio.toFixed(2) : 'n/a') +
+      ' PB=' + (pb != null ? pb.toFixed(1) : 'n/a') +
+      ' P/FCF=' + (priceToFCF != null ? priceToFCF.toFixed(1) : 'n/a') +
+      ' EV/E=' + (evToEbitda != null ? evToEbitda.toFixed(1) : 'n/a'));
+  } else {
+    addLog('[WARN] ratios-ttm: all fields missing');
+  }
+
+  // ── Call 4: key-metrics → ROE (decimal, e.g. 1.52 = 152%) ──────────────
+  addLog('key-metrics...');
+  var kmdata = await safeFetch(FMP_BASE + '/stable/key-metrics?symbol=' + ticker + '&apikey=' + FMP_KEY, 15000);
+  var km = (kmdata && Array.isArray(kmdata) && kmdata[0]) || {};
+
+  var roe = (km.returnOnEquity != null) ? parseFloat(km.returnOnEquity) : null;
+  // Sanity: ROE > 20 (2000%) is likely a data error
+  if (roe != null && Math.abs(roe) > 20) { addLog('[WARN] ROE=' + roe.toFixed(2) + ' seems extreme — treating as null'); roe = null; }
+
+  if (roe != null) {
+    addLog('key-metrics ✓ ROE=' + (roe * 100).toFixed(1) + '%');
+  } else {
+    addLog('[WARN] key-metrics: ROE missing');
+  }
+
+  // ── Call 5: income-statement → revenue + netIncome YoY ──────────────────
   addLog('income...');
-  var idata = await safeFetch(incUrl, 15000);
+  var idata = await safeFetch(FMP_BASE + '/stable/income-statement?symbol=' + ticker + '&limit=2&apikey=' + FMP_KEY, 15000);
 
   var revenueGrowthYoY = null, earningsSurprise = null;
   if (idata && Array.isArray(idata) && idata.length >= 2) {
     var cur = idata[0], prev = idata[1];
     if (cur.revenue && prev.revenue && prev.revenue !== 0) {
       revenueGrowthYoY = (cur.revenue - prev.revenue) / Math.abs(prev.revenue) * 100;
+      // Sanity: >500% or < -100% is suspect
+      if (Math.abs(revenueGrowthYoY) > 500) { addLog('[WARN] rev growth ' + revenueGrowthYoY.toFixed(0) + '% seems extreme'); revenueGrowthYoY = null; }
     }
-    if (cur.netIncome && prev.netIncome && prev.netIncome !== 0) {
+    if (cur.netIncome != null && prev.netIncome != null && prev.netIncome !== 0) {
       earningsSurprise = (cur.netIncome - prev.netIncome) / Math.abs(prev.netIncome);
     }
-    addLog('income ✓ rev=' + (revenueGrowthYoY ? revenueGrowthYoY.toFixed(1) + '%' : 'n/a') +
-           ' earn=' + (earningsSurprise ? (earningsSurprise * 100).toFixed(1) + '%' : 'n/a'));
+    if (revenueGrowthYoY != null || earningsSurprise != null) {
+      addLog('income ✓ rev=' + (revenueGrowthYoY != null ? revenueGrowthYoY.toFixed(1) + '%' : 'n/a') +
+        ' earn=' + (earningsSurprise != null ? (earningsSurprise * 100).toFixed(1) + '%' : 'n/a'));
+    } else {
+      addLog('[WARN] income: could not compute YoY');
+    }
   } else {
-    addLog('income: no data');
+    addLog('[WARN] income: need 2 periods, got ' + (idata && Array.isArray(idata) ? idata.length : 0));
   }
 
   return {
-    price: price, ma50: ma50, ma200: ma200,
-    volumeRatio: volumeRatio, rsVsSPY: rsVsSPY,
-    hasCatalyst: rsVsSPY != null && rsVsSPY > 10,
-    pegRatio: pegRatio, evToEbitda: evToEbitda, pb: pb,
-    revenueGrowthYoY: revenueGrowthYoY, roe: roe,
-    earningsSurprise: earningsSurprise, priceToFCF: priceToFCF,
+    price, ma50, ma200, volumeRatio, stock1M,
+    pegRatio, pb, priceToFCF, evToEbitda, roe,
+    revenueGrowthYoY, earningsSurprise,
     fetchedAt: Date.now()
   };
 }
 
-function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
 
 async function refreshSingle(ticker) {
   const idx = S.universe.findIndex(u => u.ticker === ticker);
@@ -417,6 +527,11 @@ async function refreshSingle(ticker) {
   const statusEl = document.getElementById('uni-status-' + ticker);
   if (statusEl) { statusEl.textContent = '⟳ fetching...'; statusEl.style.color = '#4f8fff'; }
 
+  // Fetch SPY/ETF data if not already loaded (e.g. single refresh without prior Refresh All)
+  if (SPY_1M === null && FMP_KEY) {
+    addLog('prefetch SPY+ETFs for single refresh...');
+    await prefetchMarketData();
+  }
   const q = await fetchQuote(ticker);
   S.universe[idx].quoteData = q;
   S.universe[idx].lastUpdated = Date.now();
@@ -436,6 +551,8 @@ async function refreshUniverse() {
   if (REFRESHING) return;
   REFRESHING = true;
   window._log = [];
+  SPY_1M = null;
+  ETF_1M = {};
 
   const toast = document.getElementById('refresh-toast');
   const toastTicker = document.getElementById('toast-ticker');
@@ -444,13 +561,19 @@ async function refreshUniverse() {
   const toastLog = document.getElementById('toast-log');
   if (toast) toast.style.display = 'block';
 
+  // Step 0: prefetch SPY + sector ETFs for thematic + RS scoring
+  if (toastTicker) { toastTicker.textContent = '⟳ Fetching market data...'; toastTicker.style.color = '#ffc84a'; }
+  if (!FMP_KEY) { addLog('No API key — tap ⚙ Key in Pipeline'); }
+  else { await prefetchMarketData(); }
+
   const tickers = S.universe.map(u => u.ticker);
+  let fullScored = 0, partialScored = 0, failedCount = 0;
+
   for (let i = 0; i < tickers.length; i++) {
     const ticker = tickers[i];
-    if (toastTicker) toastTicker.textContent = 'Fetching ' + ticker + '...';
     if (toastTicker) toastTicker.style.color = '#4f8fff';
     if (toastBar)    toastBar.style.width = (i / tickers.length * 100) + '%';
-    const remaining = (tickers.length - i) * 16;
+    const remaining = (tickers.length - i) * 15;
     const mins = Math.floor(remaining / 60), secs = remaining % 60;
     if (toastCounts) toastCounts.textContent = (i + 1) + ' / ' + tickers.length +
       ' · ~' + (mins > 0 ? mins + 'm ' : '') + secs + 's remaining';
@@ -469,6 +592,15 @@ async function refreshUniverse() {
         S.universe[idx].signals   = scored.signals;
         S.universe[idx].reason    = scored.reason;
         if (S.universe[idx].stage !== 'ACTIVE') S.universe[idx].stage = scored.stage;
+        // Track completeness: full = all 3 categories have data
+        const hasF = q.revenueGrowthYoY != null || q.pegRatio != null;
+        const hasT = q.stock1M != null;
+        const hasTech = q.ma50 != null;
+        if (hasF && hasT && hasTech) fullScored++;
+        else if (hasTech) partialScored++;
+        else failedCount++;
+      } else {
+        failedCount++;
       }
     }
     saveState();
@@ -490,19 +622,18 @@ async function refreshUniverse() {
   REFRESHING = false;
   if (toastBar) toastBar.style.width = '100%';
 
-  const failed = S.universe.filter(u => !u.quoteData).length;
-  const succeeded = tickers.length - failed;
   if (toastCounts) {
-    if (failed === tickers.length) {
-      toastCounts.textContent = 'All fetches failed — see note below';
+    if (failedCount === tickers.length) {
+      toastCounts.textContent = 'All fetches failed — check API key';
       toastCounts.style.color = '#ff4d6d';
       const hint = document.getElementById('toast-hint');
       if (hint) hint.style.display = 'block';
     } else {
-      toastCounts.textContent = succeeded + ' loaded · ' + failed + ' failed';
-      toastCounts.style.color = succeeded > 0 ? '#00e5a0' : '#ff4d6d';
+      toastCounts.textContent = fullScored + ' fully scored · ' + partialScored + ' partial · ' + failedCount + ' failed';
+      toastCounts.style.color = fullScored > 0 ? '#00e5a0' : '#ffc84a';
     }
   }
+  addLog('--- SUMMARY: ' + fullScored + ' full, ' + partialScored + ' partial, ' + failedCount + ' failed ---');
 
   render();
   setTimeout(() => { if (toast) toast.style.display = 'none'; }, failed === tickers.length ? 6000 : 2500);
@@ -547,27 +678,34 @@ const HELP = [
   {section:'The Framework', items:[
     {term:'Pipeline',       abbr:'',                     def:'Every stock moves through five stages automatically: WATCHING → SCREENED → ENTRY READY → ACTIVE → CLOSED. You only make decisions at Entry Ready (buy?) and Active (sell?). Everything else is automated.', example:'NVDA score 87 → STRONG BUY → briefing flags for entry'},
     {term:'Swing Trading',  abbr:'',                     def:'Buying and selling stocks over weeks to months, targeting 15–35% moves. Relies on combining fundamental quality with technical timing.', example:'Hold 3–8 weeks, target +25%, stop at -7%'},
-    {term:'Scoring Engine', abbr:'',                     def:'Rates each stock 0–100 across Fundamental (30%), Thematic (20%), Technical (50%). Score determines pipeline stage. Weights shift by sector.', example:'85+ = STRONG BUY, 70–84 = ENTRY READY, 50–69 = SCREENED'},
+    {term:'Scoring Engine', abbr:'',                     def:'Rates each stock 0-100 across Fundamental (30%), Thematic (20%), Technical (50%). All signals are auto-scored from live FMP data. Weights shift by sector.', example:'85+ = STRONG BUY | 70-84 = ENTRY READY | 50-69 = SCREENED | <50 = WATCHING'},
   ]},
-  {section:'Fundamental Metrics (30%)', items:[
-    {term:'Revenue Growth YoY', abbr:'YoY = Year over Year',        def:'How much the company grew its sales vs the same period last year. Above 15% signals real momentum.', example:'NVDA revenue +122% YoY — very strong'},
-    {term:'Earnings Surprise',  abbr:'EPS = Earnings Per Share',     def:'Did the company earn more than analysts expected? A beat often catalyses a price move up.', example:'Beat by 8% → positive signal'},
+  {section:'Fundamental Metrics (30%) — Auto-Scored', items:[
+    {term:'Revenue Growth YoY', abbr:'YoY = Year over Year',        def:'Auto-scored. Fetches 2 annual periods from FMP income-statement. Compares most recent fiscal year revenue to prior year. Signal fires if growth > 15%.', example:'NVDA revenue approx +126% YoY (FY24 vs FY23)'},
+    {term:'Earnings Surprise',  abbr:'EPS = Earnings Per Share',     def:'Auto-scored. Compares most recent annual net income to prior year net income. Fires true if current > prior. Note: YoY net income growth, not analyst beat.', example:'AAPL net income $112B (FY25) vs $94B (FY24) = +19% YoY'},
     {term:'P/FCF',              abbr:'Price to Free Cash Flow',      def:'How much you pay per dollar of actual cash the business generates. Lower = cheaper. Harder to manipulate than earnings.', example:'P/FCF < 20 = undervalued, > 35 = expensive'},
     {term:'PEG Ratio',          abbr:'Price/Earnings to Growth',     def:'P/E divided by earnings growth rate. Adjusts for growth speed. PEG below 1 means growth is underpriced.', example:'P/E 30, growth 40% → PEG 0.75 = undervalued'},
     {term:'EV/EBITDA',          abbr:'Enterprise Value / EBITDA',    def:'Total business value vs operating earnings. What a private equity buyer looks at. Below 10 is value territory.', example:'EV/EBITDA < 10 = cheap, > 20 = premium'},
     {term:'P/B + ROE',          abbr:'Price to Book / Return on Equity', def:'P/B vs accounting value; ROE measures efficiency. Want both: cheap on paper AND generating strong returns.', example:'P/B < 3 AND ROE > 15% = quality at fair price'},
   ]},
-  {section:'Thematic Metrics (20%)', items:[
-    {term:'Sector ETF Trend',   abbr:'ETF = Exchange Traded Fund',   def:'Is the broader sector moving up? Stocks follow their sector. You want sectors where institutions are currently allocating.', example:'SMH in uptrend = tailwind for NVDA, AMD'},
-    {term:'Theme Relative Strength', abbr:'RS = Relative Strength',  def:'Is the sector outperforming the S&P 500? Swimming with the current improves your odds dramatically.', example:'Sector up 8% vs S&P up 2% = strong theme RS'},
-    {term:'Recent Catalyst',    abbr:'',                             def:'Something in the last 30 days confirming the theme: earnings beat, policy tailwind, major contract, technology breakthrough.', example:'NVDA blowout earnings → catalyst for AI theme'},
+  {section:'Thematic Metrics (20%) — Auto-Scored', items:[
+    {term:'Sector ETF Uptrend', abbr:'ETF = Exchange Traded Fund',   def:'Automatically scored. The app fetches the 1-month return of each sector’s ETF (QQQ for AI/Semi, XLF for Financials, XLE for Energy, ITA for Defense, XLV for Healthcare) and compares it to SPY. If the sector ETF 1M return > SPY 1M return, the sector is in uptrend. Signal fires = true.', example:'QQQ 1M +4% vs SPY 1M +1% → AI sector uptrend ✓'},
+    {term:'Theme Outperforming S&P', abbr:'RS = Relative Strength',  def:'Automatically scored using the same sector ETF fetch. Fires true when the sector ETF 1M return exceeds SPY 1M return by more than 1 percentage point. A stricter version of the uptrend signal — confirms the theme has meaningful leadership over the broad market.', example:'XLF 1M +5% vs SPY 1M +1% → margin = 4% → Financials theme outperforming ✓'},
   ]},
-  {section:'Technical Metrics (50%)', items:[
+  {section:'Technical Metrics (50%) — Auto-Scored', items:[
     {term:'50-Day Moving Average', abbr:'50-day MA or 50 DMA',       def:'Average closing price over 50 days. Most watched line by institutional traders. Above it = buyers in control.', example:'Price $115, 50MA $108 → above, bullish'},
     {term:'200-Day Moving Average',abbr:'200-day MA or 200 DMA',     def:'Long-term trend health check. Above = healthy secular uptrend. Below = structural problems.', example:'Price above 200MA = long-term trend intact'},
     {term:'Pullback to Support', abbr:'',                            def:'Ideal entry when a stock has pulled back to a logical level (50MA, prior base) and is beginning to bounce. Gives a defined stop.', example:'NVDA runs to $140, pulls back to $112 (50MA) → entry setup'},
-    {term:'Volume Pattern',      abbr:'',                            def:'Heavy volume on up days + light volume on down days = institutions accumulating. Reverse = distribution warning.', example:'Volume ratio > 1.0 on up days = accumulation'},
-    {term:'Relative Strength vs S&P', abbr:'RS, SPY = S&P 500 ETF', def:'Is this stock outperforming the market? Strong RS = large investors actively choosing this stock.', example:'S&P up 3%, stock up 8% over 20 days = strong RS'},
+    {term:'Volume Pattern',      abbr:'',                            def:'Auto-scored. Compares todays volume to average volume (volume / avgVolume from FMP quote). Ratio > 1.0 = above-average activity.', example:'volume 85M vs avg 52M = ratio 1.63'},
+    {term:'Relative Strength vs S&P', abbr:'RS, SPY = S&P 500 ETF', def:'Auto-scored. Fetches 1-month price change for stock and SPY from FMP. Signal fires if stock 1M return > SPY 1M return.', example:'NVDA 1M +5% vs SPY 1M -1% = outperforming'},
+  ]},
+  {section:'Data Sources & API', items:[
+    {term:'Quote & Volume',      abbr:'',  def:'Source: FMP stable/quote. Fields used: price, priceAvg50 (50MA), priceAvg200 (200MA), volume, avgVolume. Updated at market close.', example:'NVDA $850 | 50MA $780 | 200MA $650'},
+    {term:'Price Change (RS)',   abbr:'',  def:'Source: FMP stable/stock-price-change. Field: 1M (one-month % return). Fetched for every stock, SPY, and 6 sector ETFs once per Refresh All.', example:'NVDA 1M = +5.2% | SPY 1M = -1.4%'},
+    {term:'Ratios TTM',          abbr:'TTM = Trailing Twelve Months', def:'Source: FMP stable/ratios-ttm. Fields: priceToEarningsGrowthRatioTTM (PEG), priceToBookRatioTTM (P/B), priceToFreeCashFlowRatioTTM (P/FCF), enterpriseValueMultipleTTM (EV/EBITDA).', example:'AAPL PEG=5.3 | P/B=41.8 | P/FCF=29.8 | EV/EBITDA=24.3'},
+    {term:'Key Metrics',         abbr:'',  def:'Source: FMP stable/key-metrics. Field: returnOnEquity (ROE, stored as decimal — e.g. 1.52 = 152%). Annual filing data.', example:'AAPL ROE=151.9%'},
+    {term:'Income Statement',    abbr:'',  def:'Source: FMP stable/income-statement?limit=2. Two most recent annual periods. Fields: revenue, netIncome. Used to compute YoY revenue growth and earnings growth.', example:'AAPL revenue $416B (FY25) vs $391B (FY24) → +6.4% YoY'},
+    {term:'Sector ETFs Used',    abbr:'',  def:'AI & Semi → QQQ + SOXX | Financials → XLF | Energy → XLE | Defense → ITA | Healthcare → XLV. All compared to SPY 1M return for thematic scoring.', example:'XLF 1M = +3.1% vs SPY 1M = +0.8% → Financials uptrend ✓'},
   ]},
   {section:'Risk Management', items:[
     {term:'Stop Loss',           abbr:'SL',                          def:'Pre-defined exit price to limit losses. Set before entry, never moved down. Typical: 6–8% below entry.', example:'Buy $100, stop $93 → max loss 7%'},
@@ -1434,8 +1572,7 @@ function buildModal(portVal) {
       {key:'peg',           cat:'FUNDAMENTAL', label:'PEG Ratio < 1.5'},
       {key:'evEbitda',      cat:'FUNDAMENTAL', label:'EV/EBITDA < 15'},
       {key:'pbRoe',         cat:'FUNDAMENTAL', label:'P/B < 3 AND ROE > 15%'},
-      {key:'sectorUp',      cat:'THEMATIC',    label:'Sector ETF in Uptrend'},
-      {key:'catalyst',      cat:'THEMATIC',    label:'Catalyst in Last 30 Days'},
+      {key:'sectorEtfUp',      cat:'THEMATIC',    label:'Sector ETF in Uptrend'},
       {key:'themeRS',       cat:'THEMATIC',    label:'Theme Outperforming S&P'},
       {key:'above50',       cat:'TECHNICAL',   label:'Price Above 50-Day MA'},
       {key:'above200',      cat:'TECHNICAL',   label:'Price Above 200-Day MA'},
@@ -1467,16 +1604,22 @@ function buildModal(portVal) {
         S.universe[idx].manualChecks[sig.key] = !S.universe[idx].manualChecks[sig.key];
         // Convert checks to synthetic quoteData for scoring
         const mc = S.universe[idx].manualChecks;
+        // Temporarily override globals so thematic signals respect manual checks
+        const _spySave = SPY_1M, _etfSave = {...ETF_1M};
+        const etfSym = SECTOR_ETF[S.universe[idx].sector];
+        SPY_1M = 0;
+        if (etfSym) ETF_1M[etfSym] = mc.sectorEtfUp ? 1 : -1;
         S.universe[idx].quoteData = {
           price: 100, ma50: mc.above50 ? 95 : 105, ma200: mc.above200 ? 90 : 110,
-          rsVsSPY: mc.rs ? 5 : -1, volumeRatio: mc.volume ? 1.5 : 0.7,
+          stock1M: mc.rs ? 5 : -3, volumeRatio: mc.volume ? 1.5 : 0.7,
           revenueGrowthYoY: mc.revenueGrowth ? 20 : 5,
           earningsSurprise: mc.earningsBeat ? 0.1 : -0.1,
           priceToFCF: mc.pfcf ? 18 : 35, pegRatio: mc.peg ? 1.2 : 2.5,
-          evToEbitda: mc.evEbitda ? 10 : 22, pb: mc.pbRoe ? 2 : 4, roe: mc.pbRoe ? 20 : 8,
-          hasCatalyst: mc.catalyst === true, sectorRS: mc.sectorUp ? 3 : -1,
+          evToEbitda: mc.evEbitda ? 10 : 22, pb: mc.pbRoe ? 2 : 4, roe: mc.pbRoe ? 0.20 : 0.08,
         };
         const scored = scoreStock(S.universe[idx]);
+        // Restore globals
+        SPY_1M = _spySave; ETF_1M = _etfSave;
         S.universe[idx].score     = scored.total;
         S.universe[idx].breakdown = scored.breakdown;
         S.universe[idx].signals   = scored.signals;
@@ -1497,10 +1640,10 @@ function buildModal(portVal) {
   else if (MODAL === 'apikey') {
     hdr('FMP API Key');
     sheet.appendChild(h('div', {style:{fontSize:'11px', color:'#9da3b4', fontFamily:'monospace', lineHeight:'1.7', marginBottom:'16px'}},
-      '1. Sign up at twelvedata.com', h('br',{}),
-      '2. Enter any email address', h('br',{}),
-      '3. Your free key arrives instantly', h('br',{}),
-      '4. 25 requests/day — enough for daily scoring'
+      '1. Sign up at financialmodelingprep.com', h('br',{}),
+      '2. Go to Dashboard and copy your API key', h('br',{}),
+      '3. Paste it below and tap Save', h('br',{}),
+      '4. Starter plan: 300 calls/min — full auto-scoring'
     ));
     const keyInput = h('input', {type:'text', id:'av-key-input', placeholder:'Paste your key here e.g. ABC123XYZ', style:{width:'100%', background:'#0a0c10', border:'1px solid #242836', borderRadius:'10px', padding:'12px', color:'#e8eaf0', fontSize:'13px', fontFamily:'monospace', outline:'none', marginBottom:'14px', letterSpacing:'1px'}});
     const existing = localStorage.getItem('fmp_key');
