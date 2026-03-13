@@ -289,17 +289,19 @@ function addLog(msg) {
 }
 
 // ─── Financial Modeling Prep (FMP) ──────────────────────────────────────────
-// Free tier: 250 calls/day, ~300 calls/min — full universe refresh in <60s
-// Calls per ticker (3 total):
-//   /historical-price-full  → 200 days OHLCV → price, MA50, MA200, volume, RS
-//   /key-metrics-ttm        → PEG, EV/EBITDA, P/B, ROE, P/FCF
-//   /income-statement       → revenue growth YoY, earnings growth
+// Free tier: 250 calls/day, 150+ endpoints, no rate limit issues
+// 2 calls per ticker:
+//   /stable/quote        → price, priceAvg50, priceAvg200, volume, yearHigh/Low
+//   /v3/key-metrics-ttm  → pegRatio, evToEbitda, pbRatio, roe, pfcf
+// 3rd call optional:
+//   /v3/income-statement → revenueGrowth, earningsGrowth (limit=2)
+// Total: 93 calls/day for 31 stocks — well within 250 limit
 
 var FMP_KEY = localStorage.getItem('fmp_key') || '';
-var FMP_BASE = 'https://financialmodelingprep.com/api/v3';
+var FMP_BASE = 'https://financialmodelingprep.com';
 
 async function safeFetch(url, timeoutMs) {
-  timeoutMs = timeoutMs || 20000;
+  timeoutMs = timeoutMs || 15000;
   var controller = new AbortController();
   var timer = setTimeout(function(c){ return function(){ c.abort(); }; }(controller), timeoutMs);
   try {
@@ -322,73 +324,72 @@ async function fetchQuote(ticker) {
     return null;
   }
 
-  // ── Call 1: historical price → MA50, MA200, volume ratio, RS ────────────
-  var histUrl = FMP_BASE + '/historical-price-full/' + ticker +
-    '?timeseries=200&apikey=' + FMP_KEY;
-  addLog('price history...');
-  var hist = await safeFetch(histUrl, 20000);
+  // ── Call 1: /stable/quote — price, MA50, MA200, volume ───────────────────
+  var quoteUrl = FMP_BASE + '/stable/quote?symbol=' + ticker + '&apikey=' + FMP_KEY;
+  addLog('quote...');
+  var qdata = await safeFetch(quoteUrl, 15000);
+  var q = qdata && (Array.isArray(qdata) ? qdata[0] : qdata);
 
-  if (!hist || !hist.historical || !hist.historical.length) {
-    addLog('price history failed');
+  if (!q || !q.price) {
+    addLog('quote failed');
     return null;
   }
 
-  // FMP returns newest-first, reverse for chronological
-  var days = hist.historical.slice().reverse();
-  var closes = days.map(function(d){ return parseFloat(d.close); });
-  var vols   = days.map(function(d){ return parseFloat(d.volume) || 0; });
-  var price  = closes[closes.length - 1];
-
-  function ma(arr, n) {
-    if (arr.length < n) return null;
-    return arr.slice(-n).reduce(function(a,b){ return a+b; }, 0) / n;
-  }
-
-  var ma50  = ma(closes, 50);
-  var ma200 = ma(closes, 200);
-  var vol20 = ma(vols, 20);
-  var volumeRatio = (vol20 && vols.length) ? vols[vols.length-1] / vol20 : null;
-  var p20 = closes.length > 20 ? closes[closes.length - 21] : null;
-  var rsVsSPY = p20 ? (price - p20) / p20 * 100 : null;
+  var price       = parseFloat(q.price);
+  var ma50        = parseFloat(q.priceAvg50)  || null;
+  var ma200       = parseFloat(q.priceAvg200) || null;
+  var vol         = parseFloat(q.volume)       || null;
+  var avgVol      = parseFloat(q.avgVolume)    || null;
+  var volumeRatio = (avgVol && vol) ? vol / avgVol : null;
+  var yearHigh    = parseFloat(q.yearHigh)     || null;
+  var yearLow     = parseFloat(q.yearLow)      || null;
+  var rsVsSPY     = (yearHigh && yearLow && yearLow !== yearHigh)
+    ? ((price - yearLow) / (yearHigh - yearLow) * 100) - 50
+    : null;
 
   addLog('$' + price.toFixed(2) +
     (ma50  ? ' 50MA=' + ma50.toFixed(0)  : '') +
-    (ma200 ? ' 200MA=' + ma200.toFixed(0) : '') +
-    (rsVsSPY != null ? ' RS=' + rsVsSPY.toFixed(1) + '%' : ''));
+    (ma200 ? ' 200MA=' + ma200.toFixed(0) : ''));
 
-  // ── Call 2: key-metrics-ttm → PEG, EV/EBITDA, P/B, ROE, P/FCF ──────────
-  var metricsUrl = FMP_BASE + '/key-metrics-ttm/' + ticker + '?apikey=' + FMP_KEY;
-  addLog('key metrics...');
-  var metrics = await safeFetch(metricsUrl, 15000);
-  var m = (metrics && metrics[0]) || {};
+  // ── Call 2: /v3/key-metrics-ttm — fundamentals ───────────────────────────
+  var metricsUrl = FMP_BASE + '/api/v3/key-metrics-ttm/' + ticker + '?apikey=' + FMP_KEY;
+  addLog('metrics...');
+  var mdata = await safeFetch(metricsUrl, 15000);
+  var m = (mdata && Array.isArray(mdata) && mdata[0]) || {};
 
-  var pegRatio   = parseFloat(m.pegRatioTTM)         || null;
-  var evToEbitda = parseFloat(m.enterpriseValueOverEBITDATTM) || null;
-  var pb         = parseFloat(m.pbRatioTTM)           || null;
-  var roe        = parseFloat(m.roeTTM)               || null;
-  var priceToFCF = parseFloat(m.priceToFreeCashFlowsTTM) || null;
+  var pegRatio   = parseFloat(m.pegRatioTTM)                  || null;
+  var evToEbitda = parseFloat(m.enterpriseValueOverEBITDATTM)  || null;
+  var pb         = parseFloat(m.pbRatioTTM)                    || null;
+  var roe        = parseFloat(m.roeTTM)                        || null;
+  var priceToFCF = parseFloat(m.priceToFreeCashFlowsTTM)       || null;
 
-  if (roe) roe = roe * 100; // FMP returns as decimal e.g. 0.18 = 18%
-  if (pegRatio || pb) addLog('metrics ✓ PEG=' + (pegRatio ? pegRatio.toFixed(2) : 'n/a') +
-    ' PB=' + (pb ? pb.toFixed(2) : 'n/a') +
-    ' ROE=' + (roe ? roe.toFixed(1) + '%' : 'n/a'));
-  else addLog('metrics: no data');
+  if (roe && Math.abs(roe) < 5) roe = roe * 100; // normalize if decimal
 
-  // ── Call 3: income-statement → revenue growth, earnings growth ───────────
-  var incUrl = FMP_BASE + '/income-statement/' + ticker + '?limit=2&apikey=' + FMP_KEY;
+  if (pb || roe) {
+    addLog('metrics ✓ PEG=' + (pegRatio   ? pegRatio.toFixed(2)   : 'n/a') +
+                    ' PB='  + (pb         ? pb.toFixed(2)         : 'n/a') +
+                    ' ROE=' + (roe        ? roe.toFixed(1) + '%'  : 'n/a') +
+                    ' EV/E='+ (evToEbitda ? evToEbitda.toFixed(1) : 'n/a'));
+  } else {
+    addLog('metrics: empty');
+  }
+
+  // ── Call 3: /v3/income-statement — revenue & earnings growth ─────────────
+  var incUrl = FMP_BASE + '/api/v3/income-statement/' + ticker + '?limit=2&apikey=' + FMP_KEY;
   addLog('income...');
-  var inc = await safeFetch(incUrl, 15000);
+  var idata = await safeFetch(incUrl, 15000);
 
   var revenueGrowthYoY = null, earningsSurprise = null;
-  if (inc && inc.length >= 2) {
-    var cur = inc[0], prev = inc[1];
+  if (idata && Array.isArray(idata) && idata.length >= 2) {
+    var cur = idata[0], prev = idata[1];
     if (cur.revenue && prev.revenue && prev.revenue !== 0) {
       revenueGrowthYoY = (cur.revenue - prev.revenue) / Math.abs(prev.revenue) * 100;
     }
     if (cur.netIncome && prev.netIncome && prev.netIncome !== 0) {
       earningsSurprise = (cur.netIncome - prev.netIncome) / Math.abs(prev.netIncome);
     }
-    addLog('income ✓ revGrowth=' + (revenueGrowthYoY ? revenueGrowthYoY.toFixed(1) + '%' : 'n/a'));
+    addLog('income ✓ rev=' + (revenueGrowthYoY ? revenueGrowthYoY.toFixed(1) + '%' : 'n/a') +
+           ' earn=' + (earningsSurprise ? (earningsSurprise * 100).toFixed(1) + '%' : 'n/a'));
   } else {
     addLog('income: no data');
   }
@@ -396,7 +397,7 @@ async function fetchQuote(ticker) {
   return {
     price: price, ma50: ma50, ma200: ma200,
     volumeRatio: volumeRatio, rsVsSPY: rsVsSPY,
-    hasCatalyst: rsVsSPY != null && rsVsSPY > 5,
+    hasCatalyst: rsVsSPY != null && rsVsSPY > 10,
     pegRatio: pegRatio, evToEbitda: evToEbitda, pb: pb,
     revenueGrowthYoY: revenueGrowthYoY, roe: roe,
     earningsSurprise: earningsSurprise, priceToFCF: priceToFCF,
@@ -481,7 +482,6 @@ async function refreshUniverse() {
       }).join('');
       toastLog.scrollTop = toastLog.scrollHeight;
     }
-    // Small delay to avoid hammering FMP
     if (i < tickers.length - 1) await sleep(1000);
   }
 
