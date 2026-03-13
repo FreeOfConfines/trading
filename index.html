@@ -847,9 +847,12 @@ function buildPipeline() {
     wrap.appendChild(keyBanner);
   }
 
+  const keyBtn = h('button', {cls:'btn btn-xs btn-ghost', style:{color:'#ffc84a', border:'1px solid rgba(255,200,74,0.3)'}}, '⚙ Key');
+  keyBtn.onclick = () => { MODAL = 'apikey'; render(); };
+
   wrap.appendChild(d('row',
     h('div', {cls:'label', style:{fontSize:'11px'}}, 'UNIVERSE · ' + S.universe.length + ' stocks'),
-    h('div', {style:{display:'flex', gap:'6px'}}, testBtn, refreshBtn)
+    h('div', {style:{display:'flex', gap:'6px'}}, keyBtn, testBtn, refreshBtn)
   ));
 
   if (S.lastRefresh) {
