@@ -114,47 +114,130 @@ const STORAGE_KEY = 'trading_v4';
 const DEF = {pot:0,cash:0,positions:[],watchlist:[],tradeLog:[],marketPulse:null,universe:[],lastRefresh:null};
 
 const SEED = [
-  {ticker:'NVDA',name:'NVIDIA',           theme:'AI & Infrastructure', sector:'ai'},
-  {ticker:'MSFT',name:'Microsoft',        theme:'AI & Infrastructure', sector:'ai'},
-  {ticker:'META',name:'Meta Platforms',   theme:'AI & Infrastructure', sector:'ai'},
-  {ticker:'GOOGL',name:'Alphabet',        theme:'AI & Infrastructure', sector:'ai'},
-  {ticker:'AMZN',name:'Amazon',           theme:'AI & Infrastructure', sector:'ai'},
-  {ticker:'PLTR',name:'Palantir',         theme:'AI & Infrastructure', sector:'ai'},
-  {ticker:'TSM', name:'TSMC',             theme:'Semiconductors',      sector:'semi'},
-  {ticker:'AMD', name:'AMD',              theme:'Semiconductors',      sector:'semi'},
-  {ticker:'AVGO',name:'Broadcom',         theme:'Semiconductors',      sector:'semi'},
-  {ticker:'AMAT',name:'Applied Materials',theme:'Semiconductors',      sector:'semi'},
-  {ticker:'MU',  name:'Micron',           theme:'Semiconductors',      sector:'semi'},
-  {ticker:'LRCX',name:'Lam Research',     theme:'Semiconductors',      sector:'semi'},
-  {ticker:'GS',  name:'Goldman Sachs',    theme:'Financials & Banking',sector:'fin'},
-  {ticker:'JPM', name:'JPMorgan Chase',   theme:'Financials & Banking',sector:'fin'},
-  {ticker:'MS',  name:'Morgan Stanley',   theme:'Financials & Banking',sector:'fin'},
-  {ticker:'BAC', name:'Bank of America',  theme:'Financials & Banking',sector:'fin'},
-  {ticker:'V',   name:'Visa',             theme:'Financials & Banking',sector:'fin'},
-  {ticker:'NEE', name:'NextEra Energy',   theme:'Energy & Grid',       sector:'energy'},
-  {ticker:'XOM', name:'Exxon Mobil',      theme:'Energy & Grid',       sector:'energy'},
-  {ticker:'CVX', name:'Chevron',          theme:'Energy & Grid',       sector:'energy'},
-  {ticker:'VST', name:'Vistra Energy',    theme:'Energy & Grid',       sector:'energy'},
-  {ticker:'CEG', name:'Constellation',    theme:'Energy & Grid',       sector:'energy'},
-  {ticker:'ETN', name:'Eaton Corp',       theme:'Energy & Grid',       sector:'energy'},
-  {ticker:'LMT', name:'Lockheed Martin',  theme:'Defense & Industrial',sector:'defense'},
-  {ticker:'RTX', name:'RTX Corp',         theme:'Defense & Industrial',sector:'defense'},
-  {ticker:'NOC', name:'Northrop Grumman', theme:'Defense & Industrial',sector:'defense'},
-  {ticker:'GD',  name:'General Dynamics', theme:'Defense & Industrial',sector:'defense'},
-  {ticker:'LLY', name:'Eli Lilly',        theme:'Healthcare & Biotech',sector:'health'},
-  {ticker:'UNH', name:'UnitedHealth',     theme:'Healthcare & Biotech',sector:'health'},
-  {ticker:'ABBV',name:'AbbVie',           theme:'Healthcare & Biotech',sector:'health'},
-  {ticker:'ISRG',name:'Intuitive Surgical',theme:'Healthcare & Biotech',sector:'health'},
+  // AI & Infrastructure (10)
+  {ticker:'NVDA', name:'NVIDIA',             theme:'AI & Infrastructure',    sector:'ai'},
+  {ticker:'MSFT', name:'Microsoft',          theme:'AI & Infrastructure',    sector:'ai'},
+  {ticker:'META', name:'Meta Platforms',     theme:'AI & Infrastructure',    sector:'ai'},
+  {ticker:'GOOGL',name:'Alphabet',           theme:'AI & Infrastructure',    sector:'ai'},
+  {ticker:'AMZN', name:'Amazon',             theme:'AI & Infrastructure',    sector:'ai'},
+  {ticker:'PLTR', name:'Palantir',           theme:'AI & Infrastructure',    sector:'ai'},
+  {ticker:'ORCL', name:'Oracle',             theme:'AI & Infrastructure',    sector:'ai'},
+  {ticker:'CRM',  name:'Salesforce',         theme:'AI & Infrastructure',    sector:'ai'},
+  {ticker:'SNOW', name:'Snowflake',          theme:'AI & Infrastructure',    sector:'ai'},
+  {ticker:'APP',  name:'Applovin',           theme:'AI & Infrastructure',    sector:'ai'},
+  // Semiconductors (10)
+  {ticker:'TSM',  name:'TSMC',               theme:'Semiconductors',         sector:'semi'},
+  {ticker:'AMD',  name:'AMD',                theme:'Semiconductors',         sector:'semi'},
+  {ticker:'AVGO', name:'Broadcom',           theme:'Semiconductors',         sector:'semi'},
+  {ticker:'AMAT', name:'Applied Materials',  theme:'Semiconductors',         sector:'semi'},
+  {ticker:'MU',   name:'Micron',             theme:'Semiconductors',         sector:'semi'},
+  {ticker:'LRCX', name:'Lam Research',       theme:'Semiconductors',         sector:'semi'},
+  {ticker:'QCOM', name:'Qualcomm',           theme:'Semiconductors',         sector:'semi'},
+  {ticker:'ARM',  name:'Arm Holdings',       theme:'Semiconductors',         sector:'semi'},
+  {ticker:'MRVL', name:'Marvell Technology', theme:'Semiconductors',         sector:'semi'},
+  {ticker:'KLAC', name:'KLA Corp',           theme:'Semiconductors',         sector:'semi'},
+  // Financials & Banking (10)
+  {ticker:'GS',   name:'Goldman Sachs',      theme:'Financials & Banking',   sector:'fin'},
+  {ticker:'JPM',  name:'JPMorgan Chase',     theme:'Financials & Banking',   sector:'fin'},
+  {ticker:'MS',   name:'Morgan Stanley',     theme:'Financials & Banking',   sector:'fin'},
+  {ticker:'BAC',  name:'Bank of America',    theme:'Financials & Banking',   sector:'fin'},
+  {ticker:'V',    name:'Visa',               theme:'Financials & Banking',   sector:'fin'},
+  {ticker:'MA',   name:'Mastercard',         theme:'Financials & Banking',   sector:'fin'},
+  {ticker:'BX',   name:'Blackstone',         theme:'Financials & Banking',   sector:'fin'},
+  {ticker:'SCHW', name:'Charles Schwab',     theme:'Financials & Banking',   sector:'fin'},
+  {ticker:'COIN', name:'Coinbase',           theme:'Financials & Banking',   sector:'fin'},
+  {ticker:'AXP',  name:'American Express',   theme:'Financials & Banking',   sector:'fin'},
+  // Energy & Grid (10)
+  {ticker:'NEE',  name:'NextEra Energy',     theme:'Energy & Grid',          sector:'energy'},
+  {ticker:'XOM',  name:'Exxon Mobil',        theme:'Energy & Grid',          sector:'energy'},
+  {ticker:'CVX',  name:'Chevron',            theme:'Energy & Grid',          sector:'energy'},
+  {ticker:'VST',  name:'Vistra Energy',      theme:'Energy & Grid',          sector:'energy'},
+  {ticker:'CEG',  name:'Constellation',      theme:'Energy & Grid',          sector:'energy'},
+  {ticker:'ETN',  name:'Eaton Corp',         theme:'Energy & Grid',          sector:'energy'},
+  {ticker:'OXY',  name:'Occidental',         theme:'Energy & Grid',          sector:'energy'},
+  {ticker:'FSLR', name:'First Solar',        theme:'Energy & Grid',          sector:'energy'},
+  {ticker:'PCG',  name:'PG&E',               theme:'Energy & Grid',          sector:'energy'},
+  {ticker:'SO',   name:'Southern Company',   theme:'Energy & Grid',          sector:'energy'},
+  // Defense & Industrial (10)
+  {ticker:'LMT',  name:'Lockheed Martin',    theme:'Defense & Industrial',   sector:'defense'},
+  {ticker:'RTX',  name:'RTX Corp',           theme:'Defense & Industrial',   sector:'defense'},
+  {ticker:'NOC',  name:'Northrop Grumman',   theme:'Defense & Industrial',   sector:'defense'},
+  {ticker:'GD',   name:'General Dynamics',   theme:'Defense & Industrial',   sector:'defense'},
+  {ticker:'HII',  name:'Huntington Ingalls', theme:'Defense & Industrial',   sector:'defense'},
+  {ticker:'TDG',  name:'TransDigm',          theme:'Defense & Industrial',   sector:'defense'},
+  {ticker:'AXON', name:'Axon Enterprise',    theme:'Defense & Industrial',   sector:'defense'},
+  {ticker:'CACI', name:'CACI International', theme:'Defense & Industrial',   sector:'defense'},
+  {ticker:'LDOS', name:'Leidos',             theme:'Defense & Industrial',   sector:'defense'},
+  {ticker:'GE',   name:'GE Aerospace',       theme:'Defense & Industrial',   sector:'defense'},
+  // Healthcare & Biotech (10)
+  {ticker:'LLY',  name:'Eli Lilly',          theme:'Healthcare & Biotech',   sector:'health'},
+  {ticker:'UNH',  name:'UnitedHealth',       theme:'Healthcare & Biotech',   sector:'health'},
+  {ticker:'ABBV', name:'AbbVie',             theme:'Healthcare & Biotech',   sector:'health'},
+  {ticker:'ISRG', name:'Intuitive Surgical', theme:'Healthcare & Biotech',   sector:'health'},
+  {ticker:'MRNA', name:'Moderna',            theme:'Healthcare & Biotech',   sector:'health'},
+  {ticker:'GILD', name:'Gilead Sciences',    theme:'Healthcare & Biotech',   sector:'health'},
+  {ticker:'BMY',  name:'Bristol-Myers',      theme:'Healthcare & Biotech',   sector:'health'},
+  {ticker:'DXCM', name:'Dexcom',             theme:'Healthcare & Biotech',   sector:'health'},
+  {ticker:'REGN', name:'Regeneron',          theme:'Healthcare & Biotech',   sector:'health'},
+  {ticker:'VRTX', name:'Vertex Pharma',      theme:'Healthcare & Biotech',   sector:'health'},
+  // Consumer & E-Commerce (10) — NEW
+  {ticker:'AAPL', name:'Apple',              theme:'Consumer & E-Commerce',  sector:'consumer'},
+  {ticker:'TSLA', name:'Tesla',              theme:'Consumer & E-Commerce',  sector:'consumer'},
+  {ticker:'NFLX', name:'Netflix',            theme:'Consumer & E-Commerce',  sector:'consumer'},
+  {ticker:'SPOT', name:'Spotify',            theme:'Consumer & E-Commerce',  sector:'consumer'},
+  {ticker:'SHOP', name:'Shopify',            theme:'Consumer & E-Commerce',  sector:'consumer'},
+  {ticker:'BKNG', name:'Booking Holdings',   theme:'Consumer & E-Commerce',  sector:'consumer'},
+  {ticker:'UBER', name:'Uber',               theme:'Consumer & E-Commerce',  sector:'consumer'},
+  {ticker:'DASH', name:'DoorDash',           theme:'Consumer & E-Commerce',  sector:'consumer'},
+  {ticker:'DUOL', name:'Duolingo',           theme:'Consumer & E-Commerce',  sector:'consumer'},
+  {ticker:'TTD',  name:'The Trade Desk',     theme:'Consumer & E-Commerce',  sector:'consumer'},
+  // Industrials & Automation (10) — NEW
+  {ticker:'CAT',  name:'Caterpillar',        theme:'Industrials & Automation',sector:'industrial'},
+  {ticker:'HON',  name:'Honeywell',          theme:'Industrials & Automation',sector:'industrial'},
+  {ticker:'DE',   name:'Deere & Co',         theme:'Industrials & Automation',sector:'industrial'},
+  {ticker:'EMR',  name:'Emerson Electric',   theme:'Industrials & Automation',sector:'industrial'},
+  {ticker:'ROK',  name:'Rockwell Automation',theme:'Industrials & Automation',sector:'industrial'},
+  {ticker:'PH',   name:'Parker Hannifin',    theme:'Industrials & Automation',sector:'industrial'},
+  {ticker:'ITT',  name:'ITT Inc',            theme:'Industrials & Automation',sector:'industrial'},
+  {ticker:'CARR', name:'Carrier Global',     theme:'Industrials & Automation',sector:'industrial'},
+  {ticker:'TT',   name:'Trane Technologies', theme:'Industrials & Automation',sector:'industrial'},
+  {ticker:'IR',   name:'Ingersoll Rand',     theme:'Industrials & Automation',sector:'industrial'},
+  // Data Centers & REIT (10) — NEW
+  {ticker:'EQIX', name:'Equinix',            theme:'Data Centers & REIT',    sector:'reit'},
+  {ticker:'AMT',  name:'American Tower',     theme:'Data Centers & REIT',    sector:'reit'},
+  {ticker:'DLR',  name:'Digital Realty',     theme:'Data Centers & REIT',    sector:'reit'},
+  {ticker:'SBAC', name:'SBA Communications', theme:'Data Centers & REIT',    sector:'reit'},
+  {ticker:'CCI',  name:'Crown Castle',       theme:'Data Centers & REIT',    sector:'reit'},
+  {ticker:'IRM',  name:'Iron Mountain',      theme:'Data Centers & REIT',    sector:'reit'},
+  {ticker:'VTR',  name:'Ventas',             theme:'Data Centers & REIT',    sector:'reit'},
+  {ticker:'PLD',  name:'Prologis',           theme:'Data Centers & REIT',    sector:'reit'},
+  {ticker:'PSA',  name:'Public Storage',     theme:'Data Centers & REIT',    sector:'reit'},
+  {ticker:'WELL', name:'Welltower',          theme:'Data Centers & REIT',    sector:'reit'},
+  // Commodities & Mining (10) — NEW
+  {ticker:'FCX',  name:'Freeport-McMoRan',   theme:'Commodities & Mining',   sector:'commodity'},
+  {ticker:'NEM',  name:'Newmont',            theme:'Commodities & Mining',   sector:'commodity'},
+  {ticker:'GOLD', name:'Barrick Gold',       theme:'Commodities & Mining',   sector:'commodity'},
+  {ticker:'ALB',  name:'Albemarle',          theme:'Commodities & Mining',   sector:'commodity'},
+  {ticker:'MP',   name:'MP Materials',       theme:'Commodities & Mining',   sector:'commodity'},
+  {ticker:'VALE', name:'Vale',               theme:'Commodities & Mining',   sector:'commodity'},
+  {ticker:'RIO',  name:'Rio Tinto',          theme:'Commodities & Mining',   sector:'commodity'},
+  {ticker:'AA',   name:'Alcoa',              theme:'Commodities & Mining',   sector:'commodity'},
+  {ticker:'CLF',  name:'Cleveland-Cliffs',   theme:'Commodities & Mining',   sector:'commodity'},
+  {ticker:'STLD', name:'Steel Dynamics',     theme:'Commodities & Mining',   sector:'commodity'},
 ];
 
-// Sector weights: [fundamental%, thematic%, technical%]
+// Sector weights: [fundamental%, thematic%, technical%]: [fundamental%, thematic%, technical%]
 const SECTOR_W = {
-  ai:     [20, 25, 55],
-  semi:   [25, 20, 55],
-  fin:    [35, 15, 50],
-  energy: [35, 15, 50],
-  defense:[30, 15, 55],
-  health: [20, 20, 60],
+  ai:         [20, 25, 55],
+  semi:       [25, 20, 55],
+  fin:        [35, 15, 50],
+  energy:     [35, 15, 50],
+  defense:    [30, 15, 55],
+  health:     [20, 20, 60],
+  consumer:   [25, 20, 55],
+  industrial: [30, 15, 55],
+  reit:       [40, 15, 45],
+  commodity:  [30, 20, 50],
 };
 
 function loadState() {
@@ -174,7 +257,7 @@ function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(S)); }
 let S = loadState();
 let MODAL = null;
 let MDATA = {};
-let ACTIVE_TAB = 'brief';
+let ACTIVE_TAB = 'actions';
 let PIPELINE_THEME = 'All';
 let PIPELINE_STAGE = 'All';
 let REFRESHING = false;
@@ -219,12 +302,16 @@ const d = (cls, ...kids) => h('div', {cls}, ...kids);
 // ═══════════════════════════════════════════════════════
 // Sector ETF map for thematic auto-scoring
 const SECTOR_ETF = {
-  ai:      'QQQ',
-  semi:    'SOXX',
-  fin:     'XLF',
-  energy:  'XLE',
-  defense: 'ITA',
-  health:  'XLV',
+  ai:         'QQQ',
+  semi:       'SOXX',
+  fin:        'XLF',
+  energy:     'XLE',
+  defense:    'ITA',
+  health:     'XLV',
+  consumer:   'XLY',
+  industrial: 'XLI',
+  reit:       'XLRE',
+  commodity:  'XME',
 };
 
 // Cached SPY and sector ETF 1M price changes — fetched once per Refresh All
@@ -382,7 +469,7 @@ function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
 // ── Fetch SPY and all sector ETF 1M returns — called once before ticker loop ─
 async function prefetchMarketData() {
   addLog('--- prefetch SPY + ETFs ---');
-  var symbols = ['SPY', 'QQQ', 'SOXX', 'XLF', 'XLE', 'ITA', 'XLV'];
+  var symbols = ['SPY', 'QQQ', 'SOXX', 'XLF', 'XLE', 'ITA', 'XLV', 'XLY', 'XLI', 'XLRE', 'XME'];
   for (var i = 0; i < symbols.length; i++) {
     var sym = symbols[i];
     var url = FMP_BASE + '/stable/stock-price-change?symbol=' + sym + '&apikey=' + FMP_KEY;
@@ -614,7 +701,21 @@ async function refreshUniverse() {
       }).join('');
       toastLog.scrollTop = toastLog.scrollHeight;
     }
-    if (i < tickers.length - 1) await sleep(1000);
+    // Rate limit guard: pause 60s every 10 tickers with visible countdown
+    if (i < tickers.length - 1) {
+      const isRatePause = (i + 1) % 10 === 0;
+      if (isRatePause) {
+        const pauseSecs = 60;
+        for (let s = pauseSecs; s > 0; s--) {
+          if (toastTicker) { toastTicker.textContent = '⏸ Rate limit pause — resuming in ' + s + 's'; toastTicker.style.color = '#ffc84a'; }
+          if (toastCounts) toastCounts.textContent = (i + 1) + ' / ' + tickers.length + ' done · pausing to avoid rate limit';
+          await sleep(1000);
+        }
+        if (toastTicker) { toastTicker.textContent = '▶ Resuming...'; toastTicker.style.color = '#4f8fff'; }
+      } else {
+        await sleep(300);
+      }
+    }
   }
 
   S.lastRefresh = Date.now();
@@ -724,6 +825,174 @@ const HELP = [
   ]},
 ];
 
+
+// ═══════════════════════════════════════════════════════
+// ACTIONS ENGINE
+// ═══════════════════════════════════════════════════════
+function generateActions() {
+  const urgent = [], watch = [], opportunity = [];
+
+  // ── URGENT: active positions needing immediate attention ──────────────────
+  S.positions.forEach(p => {
+    const cur  = getCur(p);
+    const avg  = getAvgCost(p);
+    const days = daysSince(p.lots[0]?.date);
+    const plp  = (cur - avg) / avg * 100;
+
+    if (p.stop && cur <= p.stop) {
+      urgent.push({type:'STOP_HIT', ticker:p.ticker, color:'#ff4d6d', icon:'⛔',
+        msg:'Stop triggered at ' + fmt(p.stop) + ' — exit now',
+        action:'sell', position:p});
+    } else if (p.stop) {
+      const dist = (cur - p.stop) / cur * 100;
+      if (dist <= 2) urgent.push({type:'NEAR_STOP', ticker:p.ticker, color:'#ff4d6d', icon:'⚠',
+        msg:'Within ' + dist.toFixed(1) + '% of stop (' + fmt(p.stop) + ') — review now',
+        action:'sell', position:p});
+    }
+    if (p.target && cur >= p.target) {
+      urgent.push({type:'TARGET_HIT', ticker:p.ticker, color:'#00e5a0', icon:'🎯',
+        msg:'Target ' + fmt(p.target) + ' reached — take profit',
+        action:'sell', position:p});
+    }
+    if (days >= 42 && Math.abs(plp) < 5) {
+      urgent.push({type:'DEAD_MONEY', ticker:p.ticker, color:'#ffc84a', icon:'⏱',
+        msg:'Held ' + days + ' days with only ' + plp.toFixed(1) + '% move — dead money',
+        action:'sell', position:p});
+    }
+  });
+
+  // ── WATCH: positions and setups to monitor ────────────────────────────────
+  S.positions.forEach(p => {
+    const cur  = getCur(p);
+    const avg  = getAvgCost(p);
+    const plp  = (cur - avg) / avg * 100;
+
+    if (p.stop && cur > avg && plp >= 20) {
+      watch.push({type:'MOVE_STOP', ticker:p.ticker, color:'#4f8fff', icon:'↑',
+        msg:'Up ' + plp.toFixed(1) + '% — move stop to breakeven (' + fmt(avg) + ')',
+        action:null});
+    }
+    if (p.target) {
+      const toTarget = (p.target - cur) / cur * 100;
+      if (toTarget > 0 && toTarget <= 5) {
+        watch.push({type:'NEAR_TARGET', ticker:p.ticker, color:'#00e5a0', icon:'🎯',
+          msg:'Within ' + toTarget.toFixed(1) + '% of target — consider trimming 50%',
+          action:'sell', position:p});
+      }
+    }
+  });
+
+  // Market pulse warning
+  if (S.marketPulse === 'red') {
+    watch.push({type:'MARKET', ticker:null, color:'#ff4d6d', icon:'📉',
+      msg:'Market in downtrend — no new entries. Protect open positions.',
+      action:null});
+  } else if (S.marketPulse === 'yellow') {
+    watch.push({type:'MARKET', ticker:null, color:'#ffc84a', icon:'◆',
+      msg:'Market choppy — reduce sizing on new entries.',
+      action:null});
+  }
+
+  // Sector momentum — both thematic signals firing
+  const sectorsSeen = {};
+  S.universe.forEach(u => {
+    if (sectorsSeen[u.sector]) return;
+    const etfKey = SECTOR_ETF[u.sector];
+    const etf1M  = etfKey && ETF_1M[etfKey] != null ? ETF_1M[etfKey] : null;
+    if (etf1M != null && SPY_1M != null && etf1M > (SPY_1M + 1)) {
+      sectorsSeen[u.sector] = true;
+      watch.push({type:'SECTOR_MOMENTUM', ticker:null, color:'#00e5a0', icon:'🚀',
+        msg:u.theme + ' outperforming — both thematic signals firing (ETF 1M: ' + etf1M.toFixed(1) + '% vs SPY: ' + SPY_1M.toFixed(1) + '%)',
+        action:null});
+    }
+  });
+
+  // ── OPPORTUNITY: entry setups ready ──────────────────────────────────────
+  const inPortfolio = new Set(S.positions.map(p => p.ticker));
+  const strongBuys = S.universe
+    .filter(u => u.stage === 'STRONG BUY' && !inPortfolio.has(u.ticker) && u.score != null)
+    .sort((a, b) => b.score - a.score);
+  const entryReady = S.universe
+    .filter(u => u.stage === 'ENTRY READY' && !inPortfolio.has(u.ticker) && u.score != null)
+    .sort((a, b) => b.score - a.score);
+
+  strongBuys.forEach(u => {
+    opportunity.push({type:'STRONG_BUY', ticker:u.ticker, score:u.score, color:'#00e5a0', icon:'★',
+      msg:u.theme + ' — score ' + u.score + '/100. ' + (u.reason || 'Strong setup'),
+      action:'buy', stock:u});
+  });
+  entryReady.forEach(u => {
+    opportunity.push({type:'ENTRY_READY', ticker:u.ticker, score:u.score, color:'#4f8fff', icon:'◆',
+      msg:u.theme + ' — score ' + u.score + '/100. ' + (u.reason || 'Setup forming'),
+      action:'buy', stock:u});
+  });
+
+  return {urgent, watch, opportunity};
+}
+
+function buildActions() {
+  const wrap = d('content');
+  const {urgent, watch, opportunity} = generateActions();
+
+  // Last refresh time
+  if (S.lastRefresh) {
+    const mins = Math.floor((Date.now() - S.lastRefresh) / 60000);
+    wrap.appendChild(h('div', {style:{textAlign:'right', fontSize:'9px', color:'#636b82', fontFamily:'monospace', marginBottom:'8px'}},
+      'Last refresh: ' + (mins < 1 ? 'just now' : mins + 'm ago')));
+  } else {
+    wrap.appendChild(h('div', {style:{background:'rgba(255,200,74,0.1)', border:'1px solid rgba(255,200,74,0.3)', borderRadius:'10px', padding:'10px 12px', marginBottom:'12px', fontSize:'11px', color:'#ffc84a', fontFamily:'monospace'}},
+      'No data yet — tap ⟳ Refresh All in Pipeline to load scores'));
+  }
+
+  const section = (title, color, items) => {
+    if (!items.length) return null;
+    const sec = h('div', {style:{marginBottom:'20px'}});
+    sec.appendChild(h('div', {style:{fontSize:'10px', color:color, fontFamily:'monospace', fontWeight:'700', letterSpacing:'2px', marginBottom:'8px', paddingBottom:'6px', borderBottom:'1px solid #242836'}}, title + ' (' + items.length + ')'));
+    items.forEach(item => {
+      const card = h('div', {style:{background:'#181c26', border:'1px solid ' + color + '33', borderRadius:'12px', padding:'12px 14px', marginBottom:'8px', display:'flex', gap:'10px', alignItems:'flex-start'}});
+      // Left: icon + content
+      const left = h('div', {style:{flex:'1', minWidth:'0'}});
+      const topRow = h('div', {style:{display:'flex', alignItems:'center', gap:'6px', marginBottom:'4px'}});
+      topRow.appendChild(h('span', {style:{fontSize:'13px'}}, item.icon));
+      if (item.ticker) topRow.appendChild(h('span', {style:{fontFamily:'monospace', fontWeight:'700', fontSize:'13px', color:'#e8eaf0'}}, item.ticker));
+      if (item.score != null) topRow.appendChild(h('span', {style:{fontFamily:'monospace', fontSize:'10px', color:color, background:color+'18', padding:'1px 6px', borderRadius:'4px'}}, item.score + '/100'));
+      left.appendChild(topRow);
+      left.appendChild(h('div', {style:{fontSize:'11px', color:'#9da3b4', lineHeight:'1.5', fontFamily:'monospace'}}, item.msg));
+      card.appendChild(left);
+      // Right: action button
+      if (item.action === 'buy' && item.stock) {
+        const btn = h('button', {cls:'btn btn-xs btn-success', style:{flexShrink:'0', alignSelf:'center'}}, 'Buy');
+        btn.onclick = () => { MODAL = 'buy'; MDATA = {ticker: item.stock.ticker}; render(); };
+        card.appendChild(btn);
+      } else if (item.action === 'sell' && item.position) {
+        const btn = h('button', {cls:'btn btn-xs btn-danger', style:{flexShrink:'0', alignSelf:'center'}}, 'Sell');
+        btn.onclick = () => { MODAL = 'sell'; MDATA = {position: item.position, isStop: item.type === 'STOP_HIT'}; render(); };
+        card.appendChild(btn);
+      }
+      sec.appendChild(card);
+    });
+    return sec;
+  };
+
+  const urgentSec = section('🔴 URGENT', '#ff4d6d', urgent);
+  const watchSec  = section('🟡 WATCH',  '#ffc84a', watch);
+  const oppSec    = section('🟢 OPPORTUNITY', '#00e5a0', opportunity);
+
+  if (urgentSec) wrap.appendChild(urgentSec);
+  if (watchSec)  wrap.appendChild(watchSec);
+  if (oppSec)    wrap.appendChild(oppSec);
+
+  if (!urgent.length && !watch.length && !opportunity.length) {
+    wrap.appendChild(d('empty',
+      h('div', {cls:'icon'}, '✓'),
+      h('div', {cls:'mono', style:{fontSize:'12px', marginBottom:'6px'}}, 'Nothing to action'),
+      h('div', {style:{fontSize:'11px', color:'#636b82'}}, 'All positions healthy. No setups ready.')
+    ));
+  }
+
+  return wrap;
+}
+
 // ═══════════════════════════════════════════════════════
 // RENDER ENGINE
 // ═══════════════════════════════════════════════════════
@@ -791,6 +1060,7 @@ function buildExportImport() {
 }
 
 const TABS = [
+  {id:'actions',   label:'Actions'},
   {id:'brief',     label:'Brief'},
   {id:'pipeline',  label:'Pipeline'},
   {id:'portfolio', label:'Positions'},
@@ -801,16 +1071,19 @@ const TABS = [
 ];
 
 function buildTabs(alertCount, entryCount) {
+  const actionCount = generateActions().urgent.length;
   return d('tabs', ...TABS.map(t => {
     const b = h('button', {cls:'tab' + (ACTIVE_TAB === t.id ? ' active' : '')}, t.label);
     b.onclick = () => { ACTIVE_TAB = t.id; render(); };
-    if (t.id === 'brief'    && alertCount > 0) b.appendChild(h('span', {cls:'badge'}, String(alertCount)));
-    if (t.id === 'pipeline' && entryCount > 0) b.appendChild(h('span', {cls:'badge'}, String(entryCount)));
+    if (t.id === 'actions'  && actionCount > 0) b.appendChild(h('span', {cls:'badge'}, String(actionCount)));
+    if (t.id === 'brief'    && alertCount > 0)  b.appendChild(h('span', {cls:'badge'}, String(alertCount)));
+    if (t.id === 'pipeline' && entryCount > 0)  b.appendChild(h('span', {cls:'badge'}, String(entryCount)));
     return b;
   }));
 }
 
 function buildTabContent(portVal) {
+  if (ACTIVE_TAB === 'actions')   return buildActions();
   if (ACTIVE_TAB === 'brief')     return buildBriefing();
   if (ACTIVE_TAB === 'pipeline')  return buildPipeline();
   if (ACTIVE_TAB === 'portfolio') return buildPortfolio();
@@ -1918,14 +2191,14 @@ function buildModal(portVal) {
     sheet.appendChild(h('div', {cls:'field'}, h('label',{},'COMPANY NAME'), h('input',{type:'text',id:'uni-name',placeholder:'e.g. Apple Inc'})));
     const themeField = h('div', {cls:'field'}, h('label', {}, 'THEME'));
     const sel = h('select', {id:'uni-theme', style:{width:'100%', background:'#0a0c10', border:'1px solid #242836', borderRadius:'10px', padding:'11px 12px', color:'#e8eaf0', fontSize:'14px', fontFamily:'monospace', outline:'none'}});
-    ['AI & Infrastructure','Semiconductors','Financials & Banking','Energy & Grid','Defense & Industrial','Healthcare & Biotech'].forEach(t => sel.appendChild(h('option', {value:t}, t)));
+    ['AI & Infrastructure','Semiconductors','Financials & Banking','Energy & Grid','Defense & Industrial','Healthcare & Biotech','Consumer & E-Commerce','Industrials & Automation','Data Centers & REIT','Commodities & Mining'].forEach(t => sel.appendChild(h('option', {value:t}, t)));
     themeField.appendChild(sel); sheet.appendChild(themeField);
     const addBtn3 = h('button', {cls:'btn btn-primary btn-full'}, 'Add to Universe');
     addBtn3.onclick = () => {
       const ticker = (document.getElementById('uni-ticker')?.value||'').toUpperCase();
       const name   = document.getElementById('uni-name')?.value||'';
       const theme  = document.getElementById('uni-theme')?.value||'';
-      const sectorMap = {'AI & Infrastructure':'ai','Semiconductors':'semi','Financials & Banking':'fin','Energy & Grid':'energy','Defense & Industrial':'defense','Healthcare & Biotech':'health'};
+      const sectorMap = {'AI & Infrastructure':'ai','Semiconductors':'semi','Financials & Banking':'fin','Energy & Grid':'energy','Defense & Industrial':'defense','Healthcare & Biotech':'health','Consumer & E-Commerce':'consumer','Industrials & Automation':'industrial','Data Centers & REIT':'reit','Commodities & Mining':'commodity'};
       if (ticker && !S.universe.find(u => u.ticker === ticker)) {
         S.universe.push({ticker, name, theme, sector:sectorMap[theme]||'ai', score:null, breakdown:null, signals:{}, stage:'WATCHING', quoteData:null, reason:null});
       }
