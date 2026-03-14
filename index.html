@@ -83,20 +83,23 @@ button{font-family:monospace;}
 <div id="refresh-toast">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
     <div class="label">CONNECTION LOG</div>
-    <button id="copy-log-btn" onclick="
-      const log = window._log ? window._log.join('\n') : 'no log';
-      navigator.clipboard.writeText(log).then(()=>{
-        this.textContent='✓ Copied';
-        setTimeout(()=>{ this.textContent='Copy Log'; },2000);
-      }).catch(()=>{
-        const ta = document.createElement('textarea');
-        ta.value = log; ta.style.position='fixed'; ta.style.top='0'; ta.style.opacity='0';
-        document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-        document.body.removeChild(ta);
-        this.textContent='✓ Copied';
-        setTimeout(()=>{ this.textContent='Copy Log'; },2000);
-      });
-    " style="background:#242836;border:none;color:#e8eaf0;border-radius:6px;padding:4px 10px;font-size:10px;font-family:monospace;cursor:pointer;">Copy Log</button>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button id="copy-log-btn" onclick="
+        const log = window._log ? window._log.join('\n') : 'no log';
+        navigator.clipboard.writeText(log).then(()=>{
+          this.textContent='✓ Copied';
+          setTimeout(()=>{ this.textContent='Copy Log'; },2000);
+        }).catch(()=>{
+          const ta = document.createElement('textarea');
+          ta.value = log; ta.style.position='fixed'; ta.style.top='0'; ta.style.opacity='0';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+          document.body.removeChild(ta);
+          this.textContent='✓ Copied';
+          setTimeout(()=>{ this.textContent='Copy Log'; },2000);
+        });
+      " style="background:#242836;border:none;color:#e8eaf0;border-radius:8px;padding:8px 14px;font-size:11px;font-family:monospace;cursor:pointer;font-weight:600;">Copy Log</button>
+      <button onclick="document.getElementById('refresh-toast').style.display='none';" style="background:#ff4d6d22;border:1px solid #ff4d6d44;color:#ff4d6d;border-radius:8px;padding:8px 12px;font-size:13px;font-family:monospace;cursor:pointer;font-weight:700;line-height:1;">✕</button>
+    </div>
   </div>
   <div id="toast-ticker" style="font-size:12px;color:#4f8fff;">Starting...</div>
   <div class="progress-track"><div id="toast-bar" class="progress-bar" style="width:0%;background:#4f8fff;"></div></div>
@@ -110,7 +113,7 @@ button{font-family:monospace;}
 // ═══════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════
-const STORAGE_KEY = 'trading_v4';
+const STORAGE_KEY = 'trading_v5';
 const DEF = {pot:0,cash:0,positions:[],watchlist:[],tradeLog:[],marketPulse:null,universe:[],lastRefresh:null};
 
 const SEED = [
