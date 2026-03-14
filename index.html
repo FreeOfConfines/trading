@@ -1408,81 +1408,300 @@ function buildModal(portVal) {
     const isTicker = MDATA.ticker;
     const ex = isTicker ? S.positions.find(p => p.ticker === isTicker) : null;
     const uniStock = isTicker ? S.universe.find(u => u.ticker === isTicker) : null;
-    hdr(isTicker ? 'Add to ' + isTicker : 'New Buy');
-    sheet.appendChild(cashRow('CASH AVAILABLE', fmt(S.cash), '#00e5a0'));
+    const livePrice = uniStock?.quoteData?.price || null;
+    const ma50 = uniStock?.quoteData?.ma50 || null;
+
+    hdr(isTicker ? 'Buy ' + isTicker : 'New Buy');
+
+    // ── Market Pulse Warning ─────────────────────────────────────────────────
+    if (S.marketPulse === 'red') {
+      sheet.appendChild(h('div', {style:{background:'rgba(255,77,109,0.12)', border:'1px solid rgba(255,77,109,0.4)', borderRadius:'10px', padding:'12px', marginBottom:'12px', fontFamily:'monospace', fontSize:'11px', color:'#ff4d6d', lineHeight:'1.6'}},
+        h('div', {style:{fontWeight:'700', marginBottom:'4px'}}, '⚠ Market in Downtrend'),
+        'S&P is below its 50-day MA. Entering now goes against the trend. Proceed only if you have strong conviction and tight sizing.'
+      ));
+    } else if (S.marketPulse === 'yellow') {
+      sheet.appendChild(h('div', {style:{background:'rgba(255,200,74,0.1)', border:'1px solid rgba(255,200,74,0.3)', borderRadius:'10px', padding:'12px', marginBottom:'12px', fontFamily:'monospace', fontSize:'11px', color:'#ffc84a', lineHeight:'1.6'}},
+        h('div', {style:{fontWeight:'700', marginBottom:'4px'}}, '◆ Market Choppy'),
+        'S&P is near a key level. Consider half sizing until trend clarifies.'
+      ));
+    }
+
+    // ── Stock info row ───────────────────────────────────────────────────────
+    if (livePrice) {
+      sheet.appendChild(h('div', {style:{background:'#0a0c10', borderRadius:'10px', padding:'12px', marginBottom:'14px', display:'flex', justifyContent:'space-between', alignItems:'center'}},
+        h('div', {}, h('div', {style:{color:'#636b82', fontSize:'9px', fontFamily:'monospace', letterSpacing:'1.5px'}}, 'LAST PRICE'),
+          h('div', {style:{color:'#e8eaf0', fontFamily:'monospace', fontSize:'18px', fontWeight:'700'}}, '$' + livePrice.toFixed(2))),
+        ma50 ? h('div', {style:{textAlign:'right'}}, h('div', {style:{color:'#636b82', fontSize:'9px', fontFamily:'monospace', letterSpacing:'1.5px'}}, '50-DAY MA'),
+          h('div', {style:{color: livePrice > ma50 ? '#00e5a0' : '#ff4d6d', fontFamily:'monospace', fontSize:'14px', fontWeight:'700'}}, '$' + ma50.toFixed(0))) : h('span',{})
+      ));
+    }
+
     if (!isTicker) sheet.appendChild(mkTxt('buy-ticker', 'TICKER', 'e.g. NVDA'));
-    sheet.appendChild(h('div', {cls:'col2'}, mkNum('buy-price','ENTRY PRICE',true), mkNum('buy-shares','SHARES',false,'0')));
-    sheet.appendChild(h('div', {cls:'col2'}, mkNum('buy-stop','STOP LOSS',true,'optional'), mkNum('buy-target','TARGET',true,'optional')));
-    const themeF = h('div', {cls:'field'}, h('label', {}, 'THEME'), h('input', {type:'text', id:'buy-theme', placeholder:'e.g. AI Infrastructure'}));
-    const thesisF = h('div', {cls:'field'}, h('label', {}, 'THESIS'), h('input', {type:'text', id:'buy-thesis', placeholder:'Why are you entering?'}));
-    sheet.appendChild(themeF); sheet.appendChild(thesisF);
-    const costRow2 = h('div', {id:'buy-cost-row', style:{display:'none', borderRadius:'10px', padding:'12px', marginBottom:'12px', justifyContent:'space-between'}},
-      h('span', {cls:'label'}, 'TOTAL COST'), h('span', {id:'buy-cost-val', cls:'mono'}, '—'));
-    sheet.appendChild(costRow2);
-    const buyBtn = h('button', {cls:'btn btn-success btn-full'}, 'Buy ' + (isTicker||'Stock'));
+
+    // ── Step 1: Risk % input ─────────────────────────────────────────────────
+    sheet.appendChild(h('div', {cls:'field'},
+      h('label', {}, 'RISK % OF PORTFOLIO'),
+      h('div', {style:{position:'relative'}},
+        h('input', {type:'number', id:'buy-risk-pct', placeholder:'1.0', step:'0.1', min:'0.1', max:'5',
+          style:{width:'100%', background:'#0a0c10', border:'1px solid #242836', borderRadius:'10px', padding:'11px 36px 11px 12px', color:'#e8eaf0', fontSize:'14px', fontFamily:'monospace', outline:'none'}}),
+        h('span', {style:{position:'absolute', right:'12px', top:'50%', transform:'translateY(-50%)', color:'#636b82', fontFamily:'monospace', fontSize:'13px', pointerEvents:'none'}}, '%')
+      ),
+      h('div', {cls:'hint'}, "Max $ you're willing to lose on this trade. 1% of $" + fmt(S.pot) + " = " + fmt(S.pot * 0.01))
+    ));
+
+    // ── Step 2: Entry price + stop ───────────────────────────────────────────
+    sheet.appendChild(h('div', {cls:'col2'}, mkNum('buy-price','ENTRY PRICE',true), mkNum('buy-stop','STOP LOSS',true)));
+
+    // ── Calculated outputs panel ─────────────────────────────────────────────
+    const calcPanel = h('div', {id:'buy-calc', style:{display:'none', background:'#0a0c10', borderRadius:'12px', padding:'14px', marginBottom:'14px'}});
+    sheet.appendChild(calcPanel);
+
+    // ── Thesis ───────────────────────────────────────────────────────────────
+    sheet.appendChild(h('div', {cls:'field'},
+      h('label', {}, 'THESIS'),
+      h('input', {type:'text', id:'buy-thesis', placeholder:'Why are you entering?',
+        style:{width:'100%', background:'#0a0c10', border:'1px solid #242836', borderRadius:'10px', padding:'11px 12px', color:'#e8eaf0', fontSize:'14px', fontFamily:'monospace', outline:'none'}})
+    ));
+
+    // ── Go/No-Go verdict ─────────────────────────────────────────────────────
+    const verdictEl = h('div', {id:'buy-verdict', style:{display:'none', borderRadius:'10px', padding:'12px', marginBottom:'12px', fontFamily:'monospace', fontSize:'11px', lineHeight:'1.7'}});
+    sheet.appendChild(verdictEl);
+
+    // ── Confirm button ───────────────────────────────────────────────────────
+    const buyBtn = h('button', {cls:'btn btn-success btn-full', id:'buy-confirm-btn'}, 'Confirm Buy');
     buyBtn.onclick = () => {
       const ticker = (document.getElementById('buy-ticker')?.value || MDATA.ticker || '').toUpperCase();
-      const price  = parseFloat(document.getElementById('buy-price')?.value)  || 0;
-      const shares = parseFloat(document.getElementById('buy-shares')?.value) || 0;
-      const stop   = parseFloat(document.getElementById('buy-stop')?.value)   || null;
-      const target = parseFloat(document.getElementById('buy-target')?.value) || null;
+      const price  = parseFloat(document.getElementById('buy-price')?.value) || 0;
+      const stop   = parseFloat(document.getElementById('buy-stop')?.value) || null;
       const thesis = document.getElementById('buy-thesis')?.value || '';
-      const theme  = document.getElementById('buy-theme')?.value  || '';
-      const total  = price * shares;
+      const theme  = uniStock?.theme || '';
+      // Read shares and target from calc panel data attributes
+      const shares = parseFloat(buyBtn.dataset.shares || 0);
+      const target2 = parseFloat(buyBtn.dataset.target2 || 0) || null;
+      const target3 = parseFloat(buyBtn.dataset.target3 || 0) || null;
+      const target  = target2 || null;
+      const total   = price * shares;
       if (ticker && price && shares && total <= S.cash) {
         const ex2 = S.positions.find(p => p.ticker === ticker);
         if (ex2) S.positions = S.positions.map(p => p.ticker!==ticker ? p : {...p, lots:[...p.lots,{price,shares,date:new Date().toISOString()}], stop:stop||p.stop, target:target||p.target, thesis:thesis||p.thesis});
         else S.positions = [...S.positions, {ticker,theme,thesis,stop,target,currentPrice:price,lots:[{price,shares,date:new Date().toISOString()}],addedAt:new Date().toISOString()}];
         S.cash -= total;
-        S.tradeLog = [{type:'BUY',ticker,shares,price,date:new Date().toISOString()}, ...S.tradeLog];
+        S.tradeLog = [{type:'BUY',ticker,shares,price,stop,target,date:new Date().toISOString()}, ...S.tradeLog];
         const ui = S.universe.findIndex(u => u.ticker === ticker);
         if (ui >= 0) S.universe[ui].stage = 'ACTIVE';
       }
       MODAL = null; render();
     };
     sheet.appendChild(buyBtn);
+
+    // ── Live calculation engine ───────────────────────────────────────────────
+    function recalc() {
+      const entry   = parseFloat(document.getElementById('buy-price')?.value) || 0;
+      const stop    = parseFloat(document.getElementById('buy-stop')?.value) || 0;
+      const riskPct = parseFloat(document.getElementById('buy-risk-pct')?.value) || 0;
+      const panel   = document.getElementById('buy-calc');
+      const verdict = document.getElementById('buy-verdict');
+      const btn     = document.getElementById('buy-confirm-btn');
+      if (!panel || !verdict || !btn) return;
+
+      if (!entry || !stop || !riskPct || !S.pot) { panel.style.display='none'; verdict.style.display='none'; return; }
+
+      const riskDollar   = S.pot * (riskPct / 100);
+      const riskPerShare = entry - stop;
+      if (riskPerShare <= 0) {
+        panel.style.display = 'none';
+        verdict.style.display = 'block';
+        verdict.style.background = 'rgba(255,77,109,0.1)';
+        verdict.style.border = '1px solid rgba(255,77,109,0.3)';
+        verdict.style.color = '#ff4d6d';
+        verdict.innerHTML = '✗ Stop must be below entry price.';
+        return;
+      }
+
+      const shares       = Math.floor(riskDollar / riskPerShare);
+      const positionSize = shares * entry;
+      const posPct       = (positionSize / S.pot) * 100;
+      const reward2      = riskPerShare * 2;
+      const reward3      = riskPerShare * 3;
+      const target2      = entry + reward2;
+      const target3      = entry + reward3;
+      const rr           = reward2 / riskPerShare; // always 2 by definition
+      const stopPct      = ((entry - stop) / entry) * 100;
+
+      // Store for confirm button
+      btn.dataset.shares  = shares;
+      btn.dataset.target2 = target2.toFixed(2);
+      btn.dataset.target3 = target3.toFixed(2);
+
+      // Build calc panel
+      panel.style.display = 'block';
+      panel.innerHTML = '';
+
+      const row = (label, val, color) => {
+        const d = document.createElement('div');
+        d.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #242836;';
+        d.innerHTML = '<span style="font-size:9px;color:#636b82;font-family:monospace;letter-spacing:1px;">' + label + '</span>' +
+                      '<span style="font-family:monospace;font-size:12px;font-weight:700;color:' + (color||'#e8eaf0') + '">' + val + '</span>';
+        return d;
+      };
+
+      panel.appendChild(row('RISK AMOUNT', fmt(riskDollar), '#ffc84a'));
+      panel.appendChild(row('RISK PER SHARE', fmt(riskPerShare), '#ff4d6d'));
+      panel.appendChild(row('STOP %', '-' + stopPct.toFixed(1) + '%', '#ff4d6d'));
+      panel.appendChild(row('SHARES TO BUY', String(shares), '#e8eaf0'));
+      panel.appendChild(row('POSITION SIZE', fmt(positionSize) + '  (' + posPct.toFixed(1) + '% of pot)', posPct > 15 ? '#ff4d6d' : posPct > 10 ? '#ffc84a' : '#00e5a0'));
+      panel.appendChild(row('TARGET 2:1', '$' + target2.toFixed(2) + '  (+' + (reward2/entry*100).toFixed(1) + '%)', '#00e5a0'));
+      panel.appendChild(row('TARGET 3:1', '$' + target3.toFixed(2) + '  (+' + (reward3/entry*100).toFixed(1) + '%)', '#4f8fff'));
+
+      // Go/No-Go checks
+      const checks = [];
+      const fails  = [];
+
+      if (S.marketPulse === 'red')    checks.push({ok:false, warn:true,  msg:'Market downtrend — high risk environment'});
+      if (S.marketPulse === 'yellow') checks.push({ok:true,  warn:true,  msg:'Market choppy — reduce size if unsure'});
+      if (posPct > 15)   fails.push('Position size ' + posPct.toFixed(1) + '% exceeds 15% max');
+      if (stopPct > 12)  fails.push('Stop is ' + stopPct.toFixed(1) + '% away — too loose (max 12%)');
+      if (!S.cash || positionSize > S.cash) fails.push('Insufficient cash (' + fmt(S.cash) + ' available)');
+      if (shares < 1)    fails.push('Risk % too small — results in 0 shares');
+
+      const goNo = fails.length === 0;
+      verdict.style.display = 'block';
+      verdict.style.background = goNo ? 'rgba(0,229,160,0.08)' : 'rgba(255,77,109,0.08)';
+      verdict.style.border = '1px solid ' + (goNo ? 'rgba(0,229,160,0.3)' : 'rgba(255,77,109,0.3)');
+      verdict.style.color = goNo ? '#00e5a0' : '#ff4d6d';
+      verdict.innerHTML = '';
+
+      if (goNo) {
+        const hd = document.createElement('div');
+        hd.style.cssText = 'font-weight:700;margin-bottom:6px;font-size:13px;';
+        hd.textContent = '✓ GO — Trade looks clean';
+        verdict.appendChild(hd);
+        checks.forEach(c => {
+          const d = document.createElement('div');
+          d.style.color = '#ffc84a';
+          d.textContent = '◆ ' + c.msg;
+          verdict.appendChild(d);
+        });
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.textContent = 'Confirm Buy — ' + shares + ' shares @ $' + entry.toFixed(2);
+      } else {
+        const hd = document.createElement('div');
+        hd.style.cssText = 'font-weight:700;margin-bottom:6px;font-size:13px;';
+        hd.textContent = '✗ NO-GO';
+        verdict.appendChild(hd);
+        fails.forEach(f => {
+          const d = document.createElement('div');
+          d.textContent = '✗ ' + f;
+          verdict.appendChild(d);
+        });
+        btn.disabled = true;
+        btn.style.opacity = '0.4';
+        btn.textContent = 'Confirm Buy';
+      }
+    }
+
     setTimeout(() => {
-      if (ex?.stop)   { const e = document.getElementById('buy-stop');   if(e) e.value = ex.stop; }
-      if (ex?.target) { const e = document.getElementById('buy-target'); if(e) e.value = ex.target; }
-      if (ex?.thesis) { const e = document.getElementById('buy-thesis'); if(e) e.value = ex.thesis; }
-      if (ex?.theme)  { const e = document.getElementById('buy-theme');  if(e) e.value = ex.theme; }
-      if (uniStock?.quoteData?.price) { const e = document.getElementById('buy-price'); if(e&&!e.value) e.value = uniStock.quoteData.price.toFixed(2); }
-      ['buy-price','buy-shares'].forEach(id => {
+      if (livePrice) { const e = document.getElementById('buy-price'); if(e&&!e.value) e.value = livePrice.toFixed(2); }
+      if (ma50)      { const e = document.getElementById('buy-stop');  if(e&&!e.value) e.value = ma50.toFixed(2); }
+      if (ex?.thesis){ const e = document.getElementById('buy-thesis'); if(e) e.value = ex.thesis; }
+      // Set default risk %
+      const riskEl = document.getElementById('buy-risk-pct');
+      if (riskEl && !riskEl.value) riskEl.value = '1';
+      // Wire all inputs to recalc
+      ['buy-price','buy-stop','buy-risk-pct'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.oninput = () => {
-          const p2 = parseFloat(document.getElementById('buy-price')?.value)||0;
-          const s2 = parseFloat(document.getElementById('buy-shares')?.value)||0;
-          const c2 = p2*s2;
-          const row = document.getElementById('buy-cost-row'), val = document.getElementById('buy-cost-val');
-          if (c2 && row && val) { row.style.display='flex'; val.textContent=fmt(c2); val.style.color=c2>S.cash?'#ff4d6d':'#00e5a0'; row.style.background=c2>S.cash?'rgba(255,77,109,0.07)':'rgba(0,229,160,0.07)'; row.style.border='1px solid '+(c2>S.cash?'rgba(255,77,109,0.27)':'rgba(0,229,160,0.27)'); }
-        };
+        if (el) el.oninput = recalc;
       });
+      recalc();
     }, 50);
   }
 
   else if (MODAL === 'sell') {
     const p = MDATA.position;
     const sh = getShares(p), avg = getAvgCost(p);
-    hdr('Sell ' + p.ticker);
-    sheet.appendChild(h('div', {style:{background:'#0a0c10', borderRadius:'10px', padding:'12px', marginBottom:'14px'}},
-      h('div', {style:{display:'flex', justifyContent:'space-between', marginBottom:'6px'}}, h('span', {cls:'label'}, 'SHARES HELD'), h('span', {cls:'mono'}, String(sh))),
-      h('div', {style:{display:'flex', justifyContent:'space-between'}},                    h('span', {cls:'label'}, 'AVG COST'),    h('span', {cls:'mono'}, fmt(avg)))
-    ));
+    const cur = p.currentPrice || avg;
+    const days = daysSince(p.lots[0]?.date);
+    const unrealPL = (cur - avg) / avg * 100;
+    hdr('Exit ' + p.ticker);
+
+    // ── Position summary ─────────────────────────────────────────────────────
+    const summaryBox = h('div', {style:{background:'#0a0c10', borderRadius:'12px', padding:'14px', marginBottom:'14px'}});
+    const sRow = (label, val, color) => {
+      const d = document.createElement('div');
+      d.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:4px 0;';
+      d.innerHTML = '<span style="font-size:9px;color:#636b82;font-family:monospace;letter-spacing:1px;">' + label + '</span>' +
+                    '<span style="font-family:monospace;font-size:12px;font-weight:700;color:' + (color||'#e8eaf0') + '">' + val + '</span>';
+      return d;
+    };
+    summaryBox.appendChild(sRow('SHARES', String(sh)));
+    summaryBox.appendChild(sRow('AVG COST', fmt(avg)));
+    summaryBox.appendChild(sRow('CURRENT PRICE', fmt(cur)));
+    summaryBox.appendChild(sRow('UNREALIZED P&L', (unrealPL >= 0 ? '+' : '') + unrealPL.toFixed(2) + '%', unrealPL >= 0 ? '#00e5a0' : '#ff4d6d'));
+    summaryBox.appendChild(sRow('DAYS HELD', String(days), days > 42 ? '#ffc84a' : '#e8eaf0'));
+    if (p.stop)   summaryBox.appendChild(sRow('STOP', fmt(p.stop) + '  (' + ((cur-p.stop)/cur*100).toFixed(1) + '% away)', '#ff4d6d'));
+    if (p.target) summaryBox.appendChild(sRow('TARGET', fmt(p.target) + '  (' + ((p.target-cur)/cur*100).toFixed(1) + '% away)', '#00e5a0'));
+    sheet.appendChild(summaryBox);
+
+    // ── Exit reason flags ────────────────────────────────────────────────────
+    const flags = [];
+    if (p.stop   && cur <= p.stop)                    flags.push({color:'#ff4d6d', msg:'⛔ Stop triggered — price at or below stop'});
+    if (p.target && cur >= p.target)                  flags.push({color:'#00e5a0', msg:'🎯 Target reached — consider full exit'});
+    if (days > 42 && Math.abs(unrealPL) < 5)         flags.push({color:'#ffc84a', msg:'⏱ Dead money — held ' + days + 'd with <5% move'});
+    if (unrealPL >= 20 && p.stop && cur > avg)        flags.push({color:'#4f8fff', msg:'↑ Up 20%+ — move stop to breakeven if not done'});
+    if (flags.length) {
+      const flagBox = h('div', {style:{borderRadius:'10px', padding:'10px 12px', marginBottom:'12px', background:'rgba(255,200,74,0.07)', border:'1px solid rgba(255,200,74,0.2)'}});
+      flags.forEach(f => {
+        const d = document.createElement('div');
+        d.style.cssText = 'font-family:monospace;font-size:11px;color:' + f.color + ';padding:2px 0;';
+        d.textContent = f.msg;
+        flagBox.appendChild(d);
+      });
+      sheet.appendChild(flagBox);
+    }
+
+    // ── Exit type selector ───────────────────────────────────────────────────
+    sheet.appendChild(h('div', {cls:'label', style:{marginBottom:'8px'}}, 'EXIT REASON'));
+    const exitTypes = [
+      {id:'exit-stop',   label:'Stop Hit',    color:'#ff4d6d'},
+      {id:'exit-target', label:'Target Hit',  color:'#00e5a0'},
+      {id:'exit-time',   label:'Time Stop',   color:'#ffc84a'},
+      {id:'exit-manual', label:'Manual Exit', color:'#636b82'},
+    ];
+    const exitRow = h('div', {style:{display:'flex', gap:'6px', marginBottom:'14px', flexWrap:'wrap'}});
+    let selectedExit = p.stop && cur <= p.stop ? 'exit-stop' : p.target && cur >= p.target ? 'exit-target' : days > 42 ? 'exit-time' : 'exit-manual';
+    exitTypes.forEach(et => {
+      const btn = h('button', {style:{padding:'6px 12px', borderRadius:'8px', fontFamily:'monospace', fontSize:'10px', cursor:'pointer',
+        border:'1px solid ' + (selectedExit===et.id ? et.color : '#242836'),
+        background: selectedExit===et.id ? et.color + '22' : 'transparent',
+        color: selectedExit===et.id ? et.color : '#636b82'}}, et.label);
+      btn.onclick = () => {
+        selectedExit = et.id;
+        exitRow.querySelectorAll('button').forEach((b, i) => {
+          const e2 = exitTypes[i];
+          b.style.border = '1px solid ' + (selectedExit===e2.id ? e2.color : '#242836');
+          b.style.background = selectedExit===e2.id ? e2.color + '22' : 'transparent';
+          b.style.color = selectedExit===e2.id ? e2.color : '#636b82';
+        });
+      };
+      exitRow.appendChild(btn);
+    });
+    sheet.appendChild(exitRow);
+
+    // ── Sell price + shares ──────────────────────────────────────────────────
     sheet.appendChild(h('div', {cls:'col2'}, mkNum('sell-price','SELL PRICE',true), mkNum('sell-shares','SHARES',false,'max '+sh)));
-    const stopBtn = h('button', {style:{display:'flex', alignItems:'center', gap:'8px', background:'transparent', border:'none', color:MDATA.isStop?'#ff4d6d':'#636b82', cursor:'pointer', marginBottom:'14px', padding:'0', fontFamily:'monospace', fontSize:'12px'}});
-    const stopChk = h('span', {style:{width:'16px', height:'16px', borderRadius:'4px', border:'2px solid '+(MDATA.isStop?'#ff4d6d':'#242836'), background:MDATA.isStop?'rgba(255,77,109,0.2)':'transparent', display:'inline-block', flexShrink:'0'}});
-    stopBtn.appendChild(stopChk); stopBtn.appendChild(document.createTextNode('Mark as stop triggered'));
-    stopBtn.onclick = () => { MDATA.isStop = !MDATA.isStop; stopChk.style.borderColor=MDATA.isStop?'#ff4d6d':'#242836'; stopChk.style.background=MDATA.isStop?'rgba(255,77,109,0.2)':'transparent'; stopBtn.style.color=MDATA.isStop?'#ff4d6d':'#636b82'; };
-    sheet.appendChild(stopBtn);
     const plRow = h('div', {id:'sell-pl-row', style:{display:'none', background:'#0a0c10', borderRadius:'10px', padding:'12px', marginBottom:'12px'}});
     sheet.appendChild(plRow);
+
+    // ── Buttons ──────────────────────────────────────────────────────────────
     const btnRow = h('div', {cls:'col2'});
-    const allBtn = h('button', {cls:'btn btn-ghost btn-sm'}, 'All (' + sh + ')');
+    const allBtn = h('button', {cls:'btn btn-ghost btn-sm'}, 'All (' + sh + ' shares)');
     allBtn.onclick = () => { const e=document.getElementById('sell-shares'); if(e){e.value=sh; e.dispatchEvent(new Event('input'));} };
-    const sellBtn = h('button', {cls:'btn btn-danger btn-sm'}, 'Confirm Sell');
+    const sellBtn = h('button', {cls:'btn btn-danger btn-sm'}, 'Confirm Exit');
     sellBtn.onclick = () => {
       const sp = parseFloat(document.getElementById('sell-price')?.value)  || 0;
       const ss = parseFloat(document.getElementById('sell-shares')?.value) || 0;
+      const exitType = selectedExit.replace('exit-','').toUpperCase();
       if (sp && ss && ss <= sh) {
         const proceeds = sp*ss, pl2 = proceeds - ss*avg;
         if (ss >= sh) {
@@ -1495,22 +1714,35 @@ function buildModal(portVal) {
           S.positions = S.positions.map(pos => pos.ticker!==p.ticker ? pos : {...pos, lots:nl});
         }
         S.cash += proceeds;
-        S.tradeLog = [{type:MDATA.isStop?'STOP':'SELL', ticker:p.ticker, shares:ss, price:sp, pl:pl2, date:new Date().toISOString()}, ...S.tradeLog];
+        S.tradeLog = [{type:exitType, ticker:p.ticker, shares:ss, price:sp, pl:pl2, daysHeld:days, date:new Date().toISOString()}, ...S.tradeLog];
       }
       MODAL = null; render();
     };
     btnRow.appendChild(allBtn); btnRow.appendChild(sellBtn);
     sheet.appendChild(btnRow);
+
     setTimeout(() => {
+      if (cur) { const e = document.getElementById('sell-price'); if(e&&!e.value) e.value = cur.toFixed(2); }
       ['sell-price','sell-shares'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.oninput = () => {
           const sp2=parseFloat(document.getElementById('sell-price')?.value)||0;
           const ss2=parseFloat(document.getElementById('sell-shares')?.value)||0;
           const proceeds=sp2*ss2, pl2=proceeds-ss2*avg;
-          if(plRow&&sp2&&ss2&&ss2<=sh){plRow.style.display='block';plRow.innerHTML='';plRow.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:'4px'}},h('span',{cls:'label'},'PROCEEDS'),h('span',{cls:'mono'},fmt(proceeds))));plRow.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between'}},h('span',{cls:'label'},'P&L'),h('span',{cls:'mono',style:{color:pl2>=0?'#00e5a0':'#ff4d6d'}},fmt(pl2))));}
+          const rr = p.stop ? ((sp2-avg)/(avg-p.stop)).toFixed(2) : null;
+          if(plRow&&sp2&&ss2&&ss2<=sh){
+            plRow.style.display='block'; plRow.innerHTML='';
+            const pr = document.createElement('div'); pr.style.cssText='display:flex;justify-content:space-between;margin-bottom:6px;'; pr.innerHTML='<span style="font-size:9px;color:#636b82;font-family:monospace;letter-spacing:1px;">PROCEEDS</span><span style="font-family:monospace;font-size:12px;font-weight:700;">' + fmt(proceeds) + '</span>'; plRow.appendChild(pr);
+            const plEl = document.createElement('div'); plEl.style.cssText='display:flex;justify-content:space-between;margin-bottom:6px;'; plEl.innerHTML='<span style="font-size:9px;color:#636b82;font-family:monospace;letter-spacing:1px;">P&L</span><span style="font-family:monospace;font-size:12px;font-weight:700;color:' + (pl2>=0?'#00e5a0':'#ff4d6d') + '">' + fmt(pl2) + '  (' + (pl2>=0?'+':'') + ((pl2/(avg*ss2))*100).toFixed(1) + '%)</span>'; plRow.appendChild(plEl);
+            if (rr) { const rrEl = document.createElement('div'); rrEl.style.cssText='display:flex;justify-content:space-between;'; rrEl.innerHTML='<span style="font-size:9px;color:#636b82;font-family:monospace;letter-spacing:1px;">R:R ACHIEVED</span><span style="font-family:monospace;font-size:12px;font-weight:700;color:' + (parseFloat(rr)>=2?'#00e5a0':parseFloat(rr)>=1?'#ffc84a':'#ff4d6d') + '">' + rr + ':1</span>'; plRow.appendChild(rrEl); }
+          }
         };
       });
+      // Auto-fill sell price and trigger calc
+      const sp = document.getElementById('sell-price');
+      const ss = document.getElementById('sell-shares');
+      if (sp) sp.dispatchEvent(new Event('input'));
+      if (ss) { ss.value = sh; ss.dispatchEvent(new Event('input')); }
     }, 50);
   }
 
